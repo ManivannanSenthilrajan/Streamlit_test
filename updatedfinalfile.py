@@ -40,7 +40,6 @@ st.markdown(
         margin: 0;
         color: #1F2937;
     }
-    /* Tab styling */
     .stTabs [data-baseweb="tab-list"] {
         display: flex;
         gap: 6px;
@@ -58,7 +57,6 @@ st.markdown(
         background-color: #A44B3F !important;
         color: white !important;
     }
-    /* Table styling */
     table.dataframe {
         border-collapse: collapse;
     }
@@ -76,7 +74,6 @@ st.markdown(
     table.dataframe tbody tr:nth-child(even) td {
         background-color: #FAFAFA;
     }
-    /* Comment cards */
     .comment-card {
         background: #fff;
         border: 1px solid #e0e0e0;
@@ -208,12 +205,30 @@ with tab_fund:
 
 # --- COMPARE TAB ---
 with tab_compare:
-    selected = st.multiselect("Select funds to compare", funds)
-    if selected:
-        for f in selected:
-            st.subheader(f)
-            df = combined_df[combined_df["Fund Name"] == f]
-            st.dataframe(df, use_container_width=True)
+    selected_funds = st.multiselect("Select funds to compare", funds)
+    
+    if selected_funds:
+        # Filter combined_df for selected funds
+        df_selected = combined_df[combined_df["Fund Name"].isin(selected_funds)]
+        
+        # Attributes selection
+        all_attributes = list(df_selected.columns)
+        all_attributes.remove("Fund Name")  # Exclude Fund Name
+        attributes_to_compare = st.multiselect(
+            "Select attributes to compare",
+            options=all_attributes,
+            default=all_attributes[:5]
+        )
+        
+        if attributes_to_compare:
+            # Create a pivoted table for side-by-side comparison
+            comparison_df = df_selected[["Fund Name"] + attributes_to_compare]
+            
+            # Optional: set Fund Name as index for cleaner look
+            comparison_df = comparison_df.set_index("Fund Name")
+            st.dataframe(comparison_df, use_container_width=True)
+        else:
+            st.warning("Please select at least one attribute to compare.")
     else:
         st.info("Select at least one fund.")
 
