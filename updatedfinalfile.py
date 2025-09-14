@@ -19,76 +19,73 @@ SHEET_MAPPING = {
 }
 
 # ---------------- CSS & THEME ----------------
-st.markdown(
-    """
-    <style>
-    html, body, [class*="css"] {
-        font-family: 'Frutiger', 'Verdana', 'Arial', sans-serif;
-        background-color: #F8F9FA;
-        color: #333;
-    }
-    .app-header {
-        display: flex;
-        align-items: center;
-        gap: 16px;
-        padding: 12px 0;
-        margin-bottom: 16px;
-    }
-    .app-title {
-        font-size: 1.6rem;
-        font-weight: 600;
-        margin: 0;
-        color: #1F2937;
-    }
-    .stTabs [data-baseweb="tab-list"] {
-        display: flex;
-        gap: 6px;
-        margin-bottom: 14px;
-        border-bottom: 1px solid #ddd;
-    }
-    .stTabs [data-baseweb="tab"] {
-        background-color: #E5E5E5 !important;
-        color: #333 !important;
-        font-weight: 600;
-        border-radius: 4px 4px 0 0;
-        padding: 10px 16px !important;
-    }
-    .stTabs button[aria-selected="true"] {
-        background-color: #A44B3F !important;
-        color: white !important;
-    }
-    table.dataframe {
-        border-collapse: collapse;
-    }
-    table.dataframe th {
-        position: sticky;
-        top: 0;
-        background: #f2f2f2;
-        font-weight: 600;
-        border-bottom: 2px solid #ccc;
-    }
-    table.dataframe td, table.dataframe th {
-        border: none;
-        padding: 6px 8px;
-    }
-    table.dataframe tbody tr:nth-child(even) td {
-        background-color: #FAFAFA;
-    }
-    .comment-card {
-        background: #fff;
-        border: 1px solid #e0e0e0;
-        border-radius: 6px;
-        padding: 8px 10px;
-        margin-bottom: 8px;
-    }
-    .comment-meta {
-        font-size: 0.8rem;
-        color: #666;
-    }
-    </style>
-    """,
-    unsafe_allow_html=True
-)
+st.markdown("""
+<style>
+html, body, [class*="css"] {
+    font-family: 'Frutiger', 'Verdana', 'Arial', sans-serif;
+    background-color: #F8F9FA;
+    color: #333;
+}
+.app-header {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 12px 0;
+    margin-bottom: 16px;
+}
+.app-title {
+    font-size: 1.6rem;
+    font-weight: 600;
+    margin: 0;
+    color: #1F2937;
+}
+.stTabs [data-baseweb="tab-list"] {
+    display: flex;
+    gap: 6px;
+    margin-bottom: 14px;
+    border-bottom: 1px solid #ddd;
+}
+.stTabs [data-baseweb="tab"] {
+    background-color: #E5E5E5 !important;
+    color: #333 !important;
+    font-weight: 600;
+    border-radius: 4px 4px 0 0;
+    padding: 10px 16px !important;
+}
+.stTabs button[aria-selected="true"] {
+    background-color: #A44B3F !important;
+    color: white !important;
+}
+table.dataframe {
+    border-collapse: collapse;
+}
+table.dataframe th {
+    position: sticky;
+    top: 0;
+    background: #f2f2f2;
+    font-weight: 600;
+    border-bottom: 2px solid #ccc;
+}
+table.dataframe td, table.dataframe th {
+    border: none;
+    padding: 6px 8px;
+}
+table.dataframe tbody tr:nth-child(even) td {
+    background-color: #FAFAFA;
+}
+.comment-card {
+    background: #fff;
+    border: 1px solid #e0e0e0;
+    border-radius: 6px;
+    padding: 8px 10px;
+    margin-bottom: 8px;
+}
+.comment-meta {
+    font-size: 0.8rem;
+    color: #666;
+}
+</style>
+""", unsafe_allow_html=True)
 
 # ---------------- HELPERS ----------------
 def load_json_file(path, default):
@@ -164,35 +161,39 @@ with st.sidebar:
     username = st.text_input("Enter your name", value="")
 
 combined_df = pd.concat(dataframes.values(), ignore_index=True) if dataframes else pd.DataFrame()
-
 funds = sorted(combined_df["Fund Name"].unique()) if not combined_df.empty else []
 
 # Header
-st.markdown(
-    """
-    <div class="app-header">
-        <h1 class="app-title">Fund Explorer Dashboard</h1>
-    </div>
-    """, unsafe_allow_html=True
-)
+st.markdown("""
+<div class="app-header">
+    <h1 class="app-title">Fund Explorer Dashboard</h1>
+</div>
+""", unsafe_allow_html=True)
 
 tab_fund, tab_compare, tab_history = st.tabs(["Fund Details", "Compare Funds", "History"])
 
-# --- FUND TAB ---
+# --- FUND DETAILS TAB ---
 with tab_fund:
     if funds:
         selected_fund = st.selectbox("Select Fund", funds)
         if selected_fund:
-            log_action(username, "Viewed fund", selected_fund)
-            comments = commentary_data.get(selected_fund, [])
-            st.markdown("### Commentary")
-            for c in reversed(comments):
-                st.markdown(
-                    f"<div class='comment-card'><div class='comment-meta'>{c['timestamp']} | {c['user']}</div><div>{c['comment']}</div></div>",
-                    unsafe_allow_html=True
-                )
+            log_action(username, "Viewed fund details", selected_fund)
             df = combined_df[combined_df["Fund Name"] == selected_fund]
-            st.dataframe(df, use_container_width=True)
+            comments = commentary_data.get(selected_fund, [])
+
+            # Layout: table left, commentary right
+            col1, col2 = st.columns([3,1])
+            with col1:
+                st.dataframe(df, use_container_width=True)
+            with col2:
+                st.markdown("### Commentary")
+                for c in reversed(comments):
+                    st.markdown(
+                        f"<div class='comment-card'><div class='comment-meta'>{c['timestamp']} | {c['user']}</div><div>{c['comment']}</div></div>",
+                        unsafe_allow_html=True
+                    )
+
+            # New commentary form below table
             with st.form(f"comment_form_{selected_fund}", clear_on_submit=True):
                 new_comment = st.text_area("Add Commentary")
                 submit = st.form_submit_button("Submit")
@@ -203,17 +204,16 @@ with tab_fund:
     else:
         st.info("No funds loaded.")
 
-# --- COMPARE TAB ---
+# --- COMPARE FUNDS TAB ---
 with tab_compare:
     selected_funds = st.multiselect("Select funds to compare", funds)
     
     if selected_funds:
-        # Filter combined_df for selected funds
         df_selected = combined_df[combined_df["Fund Name"].isin(selected_funds)]
         
         # Attributes selection
         all_attributes = list(df_selected.columns)
-        all_attributes.remove("Fund Name")  # Exclude Fund Name
+        all_attributes.remove("Fund Name")
         attributes_to_compare = st.multiselect(
             "Select attributes to compare",
             options=all_attributes,
@@ -221,12 +221,26 @@ with tab_compare:
         )
         
         if attributes_to_compare:
-            # Create a pivoted table for side-by-side comparison
-            comparison_df = df_selected[["Fund Name"] + attributes_to_compare]
-            
-            # Optional: set Fund Name as index for cleaner look
-            comparison_df = comparison_df.set_index("Fund Name")
+            # Side-by-side table
+            comparison_df = df_selected[["Fund Name"] + attributes_to_compare].set_index("Fund Name")
             st.dataframe(comparison_df, use_container_width=True)
+
+            # Log the compare action for history
+            log_action(username, "Compare funds", f"Funds: {selected_funds}, Attributes: {attributes_to_compare}")
+
+            # Show commentary for selected funds below table
+            st.markdown("### Commentary for Selected Funds")
+            for f in selected_funds:
+                comments = commentary_data.get(f, [])
+                if comments:
+                    st.markdown(f"**{f}**")
+                    for c in reversed(comments):
+                        st.markdown(
+                            f"<div class='comment-card'><div class='comment-meta'>{c['timestamp']} | {c['user']}</div><div>{c['comment']}</div></div>",
+                            unsafe_allow_html=True
+                        )
+                else:
+                    st.markdown(f"**{f}**: No comments")
         else:
             st.warning("Please select at least one attribute to compare.")
     else:
