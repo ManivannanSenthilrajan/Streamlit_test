@@ -12,6 +12,7 @@ FUND_DATA_FOLDER = "./fund_data"
 COMMENTARY_FILE = "fund_commentary.json"
 LOG_FILE = "user_activity.json"
 
+# Map Excel files to sheets
 SHEET_MAPPING = {
     "filea.xlsx": "Sheet1",
     "fileb.xlsx": ["Sheet1", "Sheet2"],
@@ -21,39 +22,37 @@ SHEET_MAPPING = {
 # ---------------- STYLES ----------------
 st.markdown("""
 <style>
-body { background-color: #f5f6fa; font-family: 'Segoe UI', sans-serif; }
-h1,h2,h3,h4,h5,h6 {color: #1f2937;}
-.fund-card { background: white; padding: 1rem; margin-bottom: 1rem; border-radius: 12px; box-shadow: 0 6px 20px rgba(0,0,0,0.08);}
-.scroll-container { overflow-x: auto; display: flex; gap: 1rem; padding-bottom:1rem; }
-.scroll-card { min-width: 400px; flex: none; background: white; border-radius: 12px; box-shadow: 0 6px 18px rgba(0,0,0,0.08); padding: 1rem; }
-
-.comment-box { border: 1px solid #e6e6e6; border-radius: 8px; background: #fefefe; padding: 0.6rem; margin-bottom: 0.5rem; }
-.timestamp { color: #6c757d; font-size: 0.85rem; }
-table.dataframe th {background-color:#f7f8fa; color:#1f2937; position: sticky; top: 0; z-index:1;}
-table.dataframe tr:hover {background-color:#f0f8ff;}
-
 /* Capsule-style tabs */
 .stTabs button {
     border-radius: 25px !important;
     border: 1px solid #1f2937 !important;
     padding: 0.5rem 1rem !important;
     margin-right: 0.5rem;
-    background-color: #4A90E2 !important;
+    background-color: #C0C0C0 !important; /* grey/silver inactive */
     color: white !important;
-    font-weight: 500;
+    font-family: 'Frutiger', 'Verdana', 'Arial', sans-serif !important;
+    font-weight: 400;
     box-shadow: 0 2px 6px rgba(0,0,0,0.05);
     transition: all 0.2s ease;
 }
 .stTabs button[aria-selected="true"] {
-    background-color: #5C4033 !important;
+    background-color: #8B3E2F !important; /* reddish brown selected */
     color: white !important;
     box-shadow: 0 4px 12px rgba(0,0,0,0.1);
 }
 .stTabs button:hover:not([aria-selected="true"]) {
-    background-color: #6FA8DC !important;
+    background-color: #D3D3D3 !important; /* lighter grey hover */
     color: white !important;
     transform: translateY(-1px);
 }
+body { background-color: #f5f6fa; font-family: 'Segoe UI', sans-serif; }
+.fund-card { background: white; padding: 1rem; margin-bottom: 1rem; border-radius: 12px; box-shadow: 0 6px 20px rgba(0,0,0,0.08);}
+.scroll-container { overflow-x: auto; display: flex; gap: 1rem; padding-bottom:1rem; }
+.scroll-card { min-width: 400px; flex: none; background: white; border-radius: 12px; box-shadow: 0 6px 18px rgba(0,0,0,0.08); padding: 1rem; }
+.comment-box { border: 1px solid #e6e6e6; border-radius: 8px; background: #fefefe; padding: 0.6rem; margin-bottom: 0.5rem; }
+.timestamp { color: #6c757d; font-size: 0.85rem; }
+table.dataframe th {background-color:#f7f8fa; color:#1f2937; position: sticky; top: 0; z-index:1;}
+table.dataframe tr:hover {background-color:#f0f8ff;}
 </style>
 """, unsafe_allow_html=True)
 
