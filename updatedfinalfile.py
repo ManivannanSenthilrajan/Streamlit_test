@@ -21,15 +21,15 @@ SHEET_MAPPING = {
 # ---------------- STYLES ----------------
 st.markdown("""
 <style>
-body { background-color: #f7f8fa; font-family: 'Segoe UI', sans-serif; }
-.fund-card { background: white; padding: 1rem; margin-bottom: 1rem; border-radius: 12px; box-shadow: 0 6px 18px rgba(0,0,0,0.08);}
-.comment-box { border: 1px solid #e6e6e6; border-radius: 8px; background: #fff; padding: 0.6rem; margin-bottom: 0.5rem; }
+body { background-color: #f5f6fa; font-family: 'Segoe UI', sans-serif; }
+.fund-card { background: white; padding: 1rem; margin-bottom: 1rem; border-radius: 12px; box-shadow: 0 6px 20px rgba(0,0,0,0.08);}
+.comment-box { border: 1px solid #e6e6e6; border-radius: 8px; background: #fefefe; padding: 0.6rem; margin-bottom: 0.5rem; }
 .timestamp { color: #6c757d; font-size: 0.85rem; }
-.activity-log { font-size: 0.9rem; margin-bottom: 0.3rem; }
+.scroll-container { overflow-x: auto; display: flex; gap: 1rem; padding-bottom:1rem; }
+.scroll-card { min-width: 400px; flex: none; background: white; border-radius: 12px; box-shadow: 0 6px 18px rgba(0,0,0,0.08); padding: 1rem; }
 table.dataframe th {background-color:#f7f8fa; color:#1f2937;}
 table.dataframe tr:hover {background-color:#f0f8ff;}
-.scroll-container { overflow-x: auto; display: flex; gap: 1rem; padding-bottom:1rem; }
-.scroll-card { min-width: 350px; flex: none; background: white; border-radius: 12px; box-shadow: 0 6px 18px rgba(0,0,0,0.08); padding: 1rem; }
+h1,h2,h3,h4,h5,h6 {color: #1f2937;}
 </style>
 """, unsafe_allow_html=True)
 
@@ -119,8 +119,7 @@ st.sidebar.image("https://yourcompany.com/logo.png", width=150)
 st.sidebar.header("👤 User")
 username = st.sidebar.text_input("Enter your name", placeholder="e.g. Alice").strip()
 
-st.sidebar.header("📂 Data source & filters")
-selected_sources = st.sidebar.multiselect("Choose sources", options=list(dataframes.keys()), default=list(dataframes.keys()))
+st.sidebar.header("📂 Filters")
 search_term = st.sidebar.text_input("🔎 Search fund").strip().lower()
 if search_term:
     funds = [f for f in funds if search_term in f.lower()]
@@ -143,6 +142,7 @@ with tab_details:
     if selected_fund and username:
         log_action(username, "Viewed fund", selected_fund)
 
+    # Existing commentary
     st.markdown("### 📝 Existing Commentary")
     comments = commentary_data.get(selected_fund, [])
     if comments:
@@ -151,22 +151,22 @@ with tab_details:
     else:
         st.info("No commentary yet.")
 
+    # Fund table
+    if selected_fund:
+        fund_df = combined_df[combined_df["Fund Name"] == selected_fund]
+        st.dataframe(fund_df, use_container_width=True)
+
+    # New commentary input at bottom
     if "comment_input" not in st.session_state:
         st.session_state.comment_input = ""
-
     comment_value = st.session_state.comment_input
     st.text_area("Add new commentary:", key="comment_input")
-
     if st.button("💾 Append Commentary"):
         comment_to_add = comment_value.strip()
         if username and comment_to_add:
             add_comment(selected_fund, comment_to_add, username)
             st.success("Comment added.")
             st.rerun()
-
-    if selected_fund:
-        fund_df = combined_df[combined_df["Fund Name"] == selected_fund]
-        st.dataframe(fund_df, use_container_width=True)
 
 # ---------------- COMPARE FUNDS ----------------
 with tab_compare:
@@ -175,6 +175,7 @@ with tab_compare:
         log_action(username, "Compared funds", ", ".join(selected_funds))
         st.markdown("### 📊 Fund Comparison Dashboard")
         st.markdown("<div class='scroll-container'>", unsafe_allow_html=True)
+
         for fund in selected_funds:
             st.markdown("<div class='scroll-card fund-card'>", unsafe_allow_html=True)
             st.markdown(f"### {fund}")
@@ -188,11 +189,10 @@ with tab_compare:
             else:
                 st.info("No commentary yet.")
 
-            # Fund table
+            # Full table
             fund_df = combined_df[combined_df["Fund Name"] == fund]
             if not fund_df.empty:
-                key_cols = fund_df.columns[:5].tolist()
-                st.table(fund_df[key_cols].head(5))
+                st.dataframe(fund_df, use_container_width=True)
             else:
                 st.warning("No data for this fund.")
 
@@ -207,6 +207,7 @@ with tab_compare:
                     add_comment(fund, comment_to_add, username)
                     st.success("Comment added.")
                     st.rerun()
+
             st.markdown("</div>", unsafe_allow_html=True)
         st.markdown("</div>", unsafe_allow_html=True)
 
