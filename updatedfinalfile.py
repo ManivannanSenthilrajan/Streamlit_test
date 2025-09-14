@@ -2,228 +2,182 @@ import streamlit as st
 import pandas as pd
 import json
 import os
-from glob import glob
 from datetime import datetime
 
 # ---------------- CONFIG ----------------
-st.set_page_config(page_title="Fund Explorer", page_icon="💹", layout="wide")
+st.set_page_config(page_title="Fund Explorer Dashboard", layout="wide")
 
-FUND_DATA_FOLDER = "./fund_data"
+# Paths for data
+FUND_DATA_FOLDER = "fund_data"
 COMMENTARY_FILE = "fund_commentary.json"
-LOG_FILE = "user_activity.json"
+ACTIVITY_LOG_FILE = "user_activity.json"
 
-SHEET_MAPPING = {
+# Sheet mapping (update according to your real files)
+sheet_mapping = {
     "filea.xlsx": "Sheet1",
-    "fileb.xlsx": ["Sheet1", "Sheet2"],
-    "filec.xlsx": "Sheet1"
+    "fileb.xlsx": "Holdings",
+    "filec.xlsx": "FundData"
 }
 
-# ---------------- CSS & THEME ----------------
-st.markdown(
-    """
-    <style>
-    html, body, [class*="css"] {
-        font-family: 'Frutiger', 'Verdana', 'Arial', sans-serif;
-        background-color: #F8F9FA;
-        color: #333;
-    }
-    .app-header {
-        display: flex;
-        align-items: center;
-        gap: 16px;
-        padding: 12px 0;
-        margin-bottom: 16px;
-    }
-    .app-title {
-        font-size: 1.6rem;
-        font-weight: 600;
-        margin: 0;
-        color: #1F2937;
-    }
-    /* Tab styling */
-    .stTabs [data-baseweb="tab-list"] {
-        display: flex;
-        gap: 6px;
-        margin-bottom: 14px;
-        border-bottom: 1px solid #ddd;
-    }
-    .stTabs [data-baseweb="tab"] {
-        background-color: #E5E5E5 !important;
-        color: #333 !important;
-        font-weight: 600;
-        border-radius: 4px 4px 0 0;
-        padding: 10px 16px !important;
-    }
-    .stTabs button[aria-selected="true"] {
-        background-color: #A44B3F !important;
-        color: white !important;
-    }
-    /* Table styling */
-    table.dataframe {
-        border-collapse: collapse;
-    }
-    table.dataframe th {
-        position: sticky;
-        top: 0;
-        background: #f2f2f2;
-        font-weight: 600;
-        border-bottom: 2px solid #ccc;
-    }
-    table.dataframe td, table.dataframe th {
-        border: none;
-        padding: 6px 8px;
-    }
-    table.dataframe tbody tr:nth-child(even) td {
-        background-color: #FAFAFA;
-    }
-    /* Comment cards */
-    .comment-card {
-        background: #fff;
-        border: 1px solid #e0e0e0;
-        border-radius: 6px;
-        padding: 8px 10px;
-        margin-bottom: 8px;
-    }
-    .comment-meta {
-        font-size: 0.8rem;
-        color: #666;
-    }
-    </style>
-    """,
-    unsafe_allow_html=True
-)
+# ---------------- UTILITIES ----------------
+def load_fund_data():
+    fund_data = {}
+    for file, sheet in sheet_mapping.items():
+        file_path = os.path.join(FUND_DATA_FOLDER, file)
+        if os.path.exists(file_path):
+            try:
+                df = pd.read_excel(file_path, sheet_name=sheet)
+                fund_name = os.path.splitext(file)[0].capitalize()
+                fund_data[fund_name] = df
+            except Exception as e:
+                st.error(f"Error reading {file}: {e}")
+    return fund_data
 
-# ---------------- HELPERS ----------------
-def load_json_file(path, default):
-    if os.path.exists(path):
-        try:
-            with open(path, "r", encoding="utf-8") as f:
-                data = json.load(f)
-                if isinstance(default, list) and not isinstance(data, list):
-                    return []
-                if isinstance(default, dict) and not isinstance(data, dict):
-                    return {}
-                return data
-        except Exception:
-            return default
-    return default
+def load_json(path):
+    if not os.path.exists(path):
+        return []
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except:
+        return []
 
-def save_json_file(path, data):
+def save_json(path, data):
     with open(path, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=2, ensure_ascii=False)
+        json.dump(data, f, indent=4)
 
-def log_action(user, action, details=""):
-    logs = load_json_file(LOG_FILE, [])
-    entry = {
+def log_activity(username, action, details):
+    log = load_json(ACTIVITY_LOG_FILE)
+    log.append({
         "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "user": user,
+        "username": username,
         "action": action,
         "details": details
-    }
-    logs.append(entry)
-    save_json_file(LOG_FILE, logs)
-
-def add_comment(fund, text, user):
-    comments = load_json_file(COMMENTARY_FILE, {})
-    if fund not in comments:
-        comments[fund] = []
-    comments[fund].append({
-        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "user": user,
-        "comment": text
     })
-    save_json_file(COMMENTARY_FILE, comments)
-    log_action(user, "Added commentary", f"{fund}: {text}")
-
-def load_excel_files(folder, mapping):
-    result = {}
-    for file in glob(os.path.join(folder, "*.xls*")):
-        fname = os.path.basename(file)
-        if fname not in mapping:
-            continue
-        sheets = mapping[fname]
-        if isinstance(sheets, str):
-            sheets = [sheets]
-        fund_name = os.path.splitext(fname)[0].replace("file", "").upper()
-        for sheet in sheets:
-            try:
-                df = pd.read_excel(file, sheet_name=sheet)
-                if df.empty:
-                    continue
-                df["Fund Name"] = fund_name
-                result[f"{fund_name} ({sheet})"] = df
-            except Exception:
-                continue
-    return result
+    save_json(ACTIVITY_LOG_FILE, log)
 
 # ---------------- LOAD DATA ----------------
-dataframes = load_excel_files(FUND_DATA_FOLDER, SHEET_MAPPING)
-commentary_data = load_json_file(COMMENTARY_FILE, {})
-logs_data = load_json_file(LOG_FILE, [])
+fund_data = load_fund_data()
+commentary = load_json(COMMENTARY_FILE)
 
-# Sidebar
-with st.sidebar:
-    st.header("User")
-    username = st.text_input("Enter your name", value="")
+# ---------------- CUSTOM CSS ----------------
+st.markdown("""
+    <style>
+    /* Global Font */
+    html, body, [class*="css"] {
+        font-family: 'Frutiger', Verdana, 'Courier New', sans-serif;
+        font-weight: 300;
+    }
 
-combined_df = pd.concat(dataframes.values(), ignore_index=True) if dataframes else pd.DataFrame()
+    /* Header */
+    .main-title {
+        text-align: left;
+        font-size: 2rem;
+        font-weight: 600;
+        margin-bottom: 1rem;
+        color: #333;
+    }
 
-funds = sorted(combined_df["Fund Name"].unique()) if not combined_df.empty else []
+    /* Tabs */
+    div[data-baseweb="tab-list"] {
+        display: flex;
+        justify-content: flex-start;
+        border-bottom: 2px solid #ccc;
+        background-color: #f5f5f5;
+    }
+    div[data-baseweb="tab"] {
+        background-color: #d9d9d9;
+        color: #333;
+        padding: 0.5rem 1.5rem;
+        border-radius: 0px;
+        font-weight: 500;
+    }
+    div[data-baseweb="tab"][aria-selected="true"] {
+        background-color: #8B0000; /* reddish-brown */
+        color: white;
+        font-weight: 600;
+    }
 
-# Header
-st.markdown(
-    """
-    <div class="app-header">
-        <h1 class="app-title">Fund Explorer Dashboard</h1>
-    </div>
-    """, unsafe_allow_html=True
-)
+    /* Table styling */
+    table {
+        border-collapse: collapse;
+        width: 100%;
+    }
+    th, td {
+        text-align: left;
+        padding: 8px;
+    }
+    th {
+        background-color: #f2f2f2;
+    }
+    .scroll-container {
+        overflow-x: auto;
+        white-space: nowrap;
+    }
+    </style>
+""", unsafe_allow_html=True)
 
-tab_fund, tab_compare, tab_history = st.tabs(["Fund Details", "Compare Funds", "History"])
+# ---------------- APP LAYOUT ----------------
+st.markdown("<div class='main-title'>Fund Explorer Dashboard</div>", unsafe_allow_html=True)
 
-# --- FUND TAB ---
-with tab_fund:
-    if funds:
-        selected_fund = st.selectbox("Select Fund", funds)
-        if selected_fund:
-            log_action(username, "Viewed fund", selected_fund)
-            comments = commentary_data.get(selected_fund, [])
-            st.markdown("### Commentary")
-            for c in reversed(comments):
-                st.markdown(
-                    f"<div class='comment-card'><div class='comment-meta'>{c['timestamp']} | {c['user']}</div><div>{c['comment']}</div></div>",
-                    unsafe_allow_html=True
-                )
-            df = combined_df[combined_df["Fund Name"] == selected_fund]
-            st.dataframe(df, use_container_width=True)
-            with st.form(f"comment_form_{selected_fund}", clear_on_submit=True):
-                new_comment = st.text_area("Add Commentary")
-                submit = st.form_submit_button("Submit")
-                if submit and new_comment.strip():
-                    add_comment(selected_fund, new_comment.strip(), username)
-                    st.success("Comment added!")
-                    st.rerun()
-    else:
-        st.info("No funds loaded.")
+tabs = st.tabs(["Fund Details", "Compare Funds", "Activity History"])
 
-# --- COMPARE TAB ---
-with tab_compare:
-    selected = st.multiselect("Select funds to compare", funds)
-    if selected:
-        for f in selected:
-            st.subheader(f)
-            df = combined_df[combined_df["Fund Name"] == f]
-            st.dataframe(df, use_container_width=True)
-    else:
-        st.info("Select at least one fund.")
+# ---------------- FUND DETAILS TAB ----------------
+with tabs[0]:
+    st.subheader("Fund Details")
+    selected_fund = st.selectbox("Select a Fund", list(fund_data.keys()))
+    if selected_fund:
+        # Show existing commentary
+        st.markdown("### Commentary")
+        fund_comments = [c for c in commentary if c["fund"] == selected_fund]
+        if fund_comments:
+            for c in fund_comments:
+                st.markdown(f"- **{c['username']}** ({c['timestamp']}): {c['comment']}")
+        else:
+            st.markdown("*No commentary yet.*")
 
-# --- HISTORY TAB ---
-with tab_history:
-    logs = load_json_file(LOG_FILE, [])
-    if logs:
-        df_logs = pd.DataFrame(logs)
-        st.dataframe(df_logs, use_container_width=True)
-        st.download_button("Download CSV", df_logs.to_csv(index=False).encode(), "history.csv")
-        st.download_button("Download JSON", json.dumps(logs, indent=2).encode(), "history.json")
+        # Show data
+        st.dataframe(fund_data[selected_fund], use_container_width=True)
+
+        # Add new commentary below table
+        st.markdown("### Add New Commentary")
+        new_comment = st.text_area("Write your comment", key=f"comment_input_{selected_fund}")
+        if st.button("Submit Comment"):
+            if new_comment.strip():
+                username = "User"  # Replace with real user if you add authentication
+                commentary.append({
+                    "fund": selected_fund,
+                    "username": username,
+                    "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    "comment": new_comment.strip()
+                })
+                save_json(COMMENTARY_FILE, commentary)
+                log_activity(username, "Added commentary", {"fund": selected_fund, "comment": new_comment.strip()})
+                st.success("Comment added!")
+                st.rerun()
+            else:
+                st.warning("Comment cannot be empty.")
+
+# ---------------- COMPARE FUNDS TAB ----------------
+with tabs[1]:
+    st.subheader("Compare Funds")
+    selected_funds = st.multiselect("Select funds to compare", list(fund_data.keys()))
+    if selected_funds:
+        combined = pd.concat([fund_data[f].assign(Fund=f) for f in selected_funds], axis=0, ignore_index=True)
+        st.markdown("### Comparison Table")
+        st.markdown('<div class="scroll-container">', unsafe_allow_html=True)
+        st.dataframe(combined, use_container_width=True, height=500)
+        st.markdown('</div>', unsafe_allow_html=True)
+        log_activity("User", "Compared funds", {"funds": selected_funds})
+
+# ---------------- ACTIVITY HISTORY TAB ----------------
+with tabs[2]:
+    st.subheader("Activity History")
+    history = load_json(ACTIVITY_LOG_FILE)
+    if history:
+        df = pd.DataFrame(history)
+        st.dataframe(df, use_container_width=True)
+        st.download_button("Download JSON", data=json.dumps(history, indent=4), file_name="activity_log.json")
+        st.download_button("Download CSV", data=df.to_csv(index=False).encode("utf-8"), file_name="activity_log.csv")
     else:
         st.info("No activity recorded yet.")
