@@ -21,13 +21,15 @@ SHEET_MAPPING = {
 # ---------------- STYLES ----------------
 st.markdown("""
 <style>
-body { background-color: #f7f8fa; }
-.fund-card { background: white; padding: 1rem; margin-bottom: 1rem; border-radius: 12px; box-shadow: 0 6px 18px rgba(0,0,0,0.06);}
+body { background-color: #f7f8fa; font-family: 'Segoe UI', sans-serif; }
+.fund-card { background: white; padding: 1rem; margin-bottom: 1rem; border-radius: 12px; box-shadow: 0 6px 18px rgba(0,0,0,0.08);}
 .comment-box { border: 1px solid #e6e6e6; border-radius: 8px; background: #fff; padding: 0.6rem; margin-bottom: 0.5rem; }
 .timestamp { color: #6c757d; font-size: 0.85rem; }
 .activity-log { font-size: 0.9rem; margin-bottom: 0.3rem; }
 table.dataframe th {background-color:#f7f8fa; color:#1f2937;}
 table.dataframe tr:hover {background-color:#f0f8ff;}
+.scroll-container { overflow-x: auto; display: flex; gap: 1rem; padding-bottom:1rem; }
+.scroll-card { min-width: 350px; flex: none; background: white; border-radius: 12px; box-shadow: 0 6px 18px rgba(0,0,0,0.08); padding: 1rem; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -50,7 +52,7 @@ def log_action(user, action, details=""):
     logs = load_json_file(LOG_FILE)
     if user not in logs:
         logs[user] = []
-    logs[user].append({"timestamp": timestamp, "action": action, "details": details})
+    logs[user].append({"timestamp": timestamp, "user": user, "action": action, "details": details})
     save_json_file(LOG_FILE, logs)
 
 def get_user_logs(user):
@@ -64,7 +66,7 @@ def add_comment(fund_name, comment, user):
         commentary[fund_name] = []
     commentary[fund_name].append({"timestamp": timestamp, "comment": comment, "user": user})
     save_json_file(COMMENTARY_FILE, commentary)
-    log_action(user, "Added commentary", fund_name)
+    log_action(user, "Added commentary", f"{fund_name}: {comment}")
 
 def load_excel_files_from_folder(folder, sheet_mapping):
     files = glob(os.path.join(folder, "*.xls*"))
@@ -141,10 +143,10 @@ with tab_details:
     if selected_fund and username:
         log_action(username, "Viewed fund", selected_fund)
 
-    st.markdown("### 📝 Commentary")
+    st.markdown("### 📝 Existing Commentary")
     comments = commentary_data.get(selected_fund, [])
     if comments:
-        for entry in reversed(comments):
+        for entry in reversed(comments[-5:]):
             st.markdown(f"<div class='comment-box'><span class='timestamp'>{entry['timestamp']} by {entry['user']}</span><br>{entry['comment']}</div>", unsafe_allow_html=True)
     else:
         st.info("No commentary yet.")
@@ -153,14 +155,14 @@ with tab_details:
         st.session_state.comment_input = ""
 
     comment_value = st.session_state.comment_input
-    st.text_area("Add commentary:", key="comment_input")
+    st.text_area("Add new commentary:", key="comment_input")
 
     if st.button("💾 Append Commentary"):
         comment_to_add = comment_value.strip()
         if username and comment_to_add:
             add_comment(selected_fund, comment_to_add, username)
             st.success("Comment added.")
-            st.experimental_rerun()  # safely clears input
+            st.rerun()
 
     if selected_fund:
         fund_df = combined_df[combined_df["Fund Name"] == selected_fund]
@@ -171,22 +173,42 @@ with tab_compare:
     selected_funds = st.multiselect("Select funds to compare", funds)
     if selected_funds and username:
         log_action(username, "Compared funds", ", ".join(selected_funds))
-        cols = st.columns(len(selected_funds))
-        for i, fund in enumerate(selected_funds):
-            with cols[i]:
-                st.markdown(f"#### {fund}")
-                fund_df = combined_df[combined_df["Fund Name"] == fund]
-                if not fund_df.empty:
-                    st.dataframe(fund_df, use_container_width=True)
-                    comments = commentary_data.get(fund, [])
-                    if comments:
-                        st.markdown("**📝 Commentary**")
-                        for entry in reversed(comments):
-                            st.markdown(f"<div class='comment-box'><span class='timestamp'>{entry['timestamp']} by {entry['user']}</span><br>{entry['comment']}</div>", unsafe_allow_html=True)
-                    else:
-                        st.info("No commentary yet.")
-                else:
-                    st.warning("No data for this fund.")
+        st.markdown("### 📊 Fund Comparison Dashboard")
+        st.markdown("<div class='scroll-container'>", unsafe_allow_html=True)
+        for fund in selected_funds:
+            st.markdown("<div class='scroll-card fund-card'>", unsafe_allow_html=True)
+            st.markdown(f"### {fund}")
+
+            # Existing commentary at top
+            existing_comments = commentary_data.get(fund, [])
+            if existing_comments:
+                st.markdown("**📝 Existing Commentary**")
+                for entry in reversed(existing_comments[-5:]):
+                    st.markdown(f"<div class='comment-box'><span class='timestamp'>{entry['timestamp']} by {entry['user']}</span><br>{entry['comment']}</div>", unsafe_allow_html=True)
+            else:
+                st.info("No commentary yet.")
+
+            # Fund table
+            fund_df = combined_df[combined_df["Fund Name"] == fund]
+            if not fund_df.empty:
+                key_cols = fund_df.columns[:5].tolist()
+                st.table(fund_df[key_cols].head(5))
+            else:
+                st.warning("No data for this fund.")
+
+            # New commentary input at bottom
+            comment_key = f"comment_input_{fund}"
+            if comment_key not in st.session_state:
+                st.session_state[comment_key] = ""
+            new_comment = st.text_area("Add new commentary:", key=comment_key)
+            if st.button(f"💾 Append Commentary for {fund}", key=f"btn_{fund}"):
+                comment_to_add = new_comment.strip()
+                if username and comment_to_add:
+                    add_comment(fund, comment_to_add, username)
+                    st.success("Comment added.")
+                    st.rerun()
+            st.markdown("</div>", unsafe_allow_html=True)
+        st.markdown("</div>", unsafe_allow_html=True)
 
 # ---------------- MY HISTORY ----------------
 with tab_history:
