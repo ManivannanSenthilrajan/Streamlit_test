@@ -95,7 +95,7 @@ def load_excel_files_from_folder(folder, sheet_mapping):
                 continue
             if df.empty: continue
             df["Fund Name"] = fund_name
-            dataframes[f"{fund_name} ({sheet})"] = df
+            dataframes[fund_name] = df
     return dataframes
 
 # ---------------- LOAD DATA ----------------
@@ -149,19 +149,18 @@ with tab_details:
     else:
         st.info("No commentary yet.")
 
-    # Safe commentary input
     if "comment_input" not in st.session_state:
         st.session_state.comment_input = ""
 
+    comment_value = st.session_state.comment_input
     st.text_area("Add commentary:", key="comment_input")
+
     if st.button("💾 Append Commentary"):
-        comment_value = st.session_state.comment_input.strip()
-        if username and comment_value:
-            add_comment(selected_fund, comment_value, username)
+        comment_to_add = comment_value.strip()
+        if username and comment_to_add:
+            add_comment(selected_fund, comment_to_add, username)
             st.success("Comment added.")
-            # Clear input safely
-            st.session_state.comment_input = ""
-            st.experimental_rerun()
+            st.experimental_rerun()  # safely clears input
 
     if selected_fund:
         fund_df = combined_df[combined_df["Fund Name"] == selected_fund]
@@ -177,14 +176,17 @@ with tab_compare:
             with cols[i]:
                 st.markdown(f"#### {fund}")
                 fund_df = combined_df[combined_df["Fund Name"] == fund]
-                st.dataframe(fund_df, use_container_width=True)
-                comments = commentary_data.get(fund, [])
-                if comments:
-                    st.markdown("**📝 Commentary**")
-                    for entry in reversed(comments):
-                        st.markdown(f"<div class='comment-box'><span class='timestamp'>{entry['timestamp']} by {entry['user']}</span><br>{entry['comment']}</div>", unsafe_allow_html=True)
+                if not fund_df.empty:
+                    st.dataframe(fund_df, use_container_width=True)
+                    comments = commentary_data.get(fund, [])
+                    if comments:
+                        st.markdown("**📝 Commentary**")
+                        for entry in reversed(comments):
+                            st.markdown(f"<div class='comment-box'><span class='timestamp'>{entry['timestamp']} by {entry['user']}</span><br>{entry['comment']}</div>", unsafe_allow_html=True)
+                    else:
+                        st.info("No commentary yet.")
                 else:
-                    st.info("No commentary yet.")
+                    st.warning("No data for this fund.")
 
 # ---------------- MY HISTORY ----------------
 with tab_history:
