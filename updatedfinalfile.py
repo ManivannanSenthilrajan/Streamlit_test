@@ -32,14 +32,28 @@ h1,h2,h3,h4,h5,h6 {color: #1f2937;}
 table.dataframe th {background-color:#f7f8fa; color:#1f2937; position: sticky; top: 0; z-index:1;}
 table.dataframe tr:hover {background-color:#f0f8ff;}
 
-/* Tabs styling */
-.stTabs button[aria-selected="true"] {
-    background-color: #1f2937 !important;
+/* Capsule-style tabs */
+.stTabs button {
+    border-radius: 25px !important;
+    border: 1px solid #1f2937 !important;
+    padding: 0.5rem 1rem !important;
+    margin-right: 0.5rem;
+    background-color: #4A90E2 !important;
     color: white !important;
-    font-weight: bold;
-    box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+    font-weight: 500;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.05);
+    transition: all 0.2s ease;
 }
-.stTabs button:hover {background-color: #f0f4f8 !important;}
+.stTabs button[aria-selected="true"] {
+    background-color: #5C4033 !important;
+    color: white !important;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+}
+.stTabs button:hover:not([aria-selected="true"]) {
+    background-color: #6FA8DC !important;
+    color: white !important;
+    transform: translateY(-1px);
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -201,14 +215,12 @@ with tab_compare:
 
             fund_df = combined_df[combined_df["Fund Name"] == fund]
             if not fund_df.empty:
-                # horizontal scroll with fixed headers
                 st.markdown("<div style='overflow-x:auto;'>", unsafe_allow_html=True)
                 st.dataframe(fund_df, use_container_width=True)
                 st.markdown("</div>", unsafe_allow_html=True)
             else:
                 st.warning("No data for this fund.")
 
-            # New commentary at bottom
             comment_key = f"comment_input_{fund}"
             if comment_key not in st.session_state:
                 st.session_state[comment_key] = ""
