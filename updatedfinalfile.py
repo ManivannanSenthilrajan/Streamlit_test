@@ -22,14 +22,24 @@ SHEET_MAPPING = {
 st.markdown("""
 <style>
 body { background-color: #f5f6fa; font-family: 'Segoe UI', sans-serif; }
+h1,h2,h3,h4,h5,h6 {color: #1f2937;}
 .fund-card { background: white; padding: 1rem; margin-bottom: 1rem; border-radius: 12px; box-shadow: 0 6px 20px rgba(0,0,0,0.08);}
-.comment-box { border: 1px solid #e6e6e6; border-radius: 8px; background: #fefefe; padding: 0.6rem; margin-bottom: 0.5rem; }
-.timestamp { color: #6c757d; font-size: 0.85rem; }
 .scroll-container { overflow-x: auto; display: flex; gap: 1rem; padding-bottom:1rem; }
 .scroll-card { min-width: 400px; flex: none; background: white; border-radius: 12px; box-shadow: 0 6px 18px rgba(0,0,0,0.08); padding: 1rem; }
-table.dataframe th {background-color:#f7f8fa; color:#1f2937;}
+
+.comment-box { border: 1px solid #e6e6e6; border-radius: 8px; background: #fefefe; padding: 0.6rem; margin-bottom: 0.5rem; }
+.timestamp { color: #6c757d; font-size: 0.85rem; }
+table.dataframe th {background-color:#f7f8fa; color:#1f2937; position: sticky; top: 0; z-index:1;}
 table.dataframe tr:hover {background-color:#f0f8ff;}
-h1,h2,h3,h4,h5,h6 {color: #1f2937;}
+
+/* Tabs styling */
+.stTabs button[aria-selected="true"] {
+    background-color: #1f2937 !important;
+    color: white !important;
+    font-weight: bold;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+}
+.stTabs button:hover {background-color: #f0f4f8 !important;}
 </style>
 """, unsafe_allow_html=True)
 
@@ -125,11 +135,11 @@ if search_term:
     funds = [f for f in funds if search_term in f.lower()]
 
 # ---------------- HEADER ----------------
-st.markdown(f"""
-<div style="display: flex; align-items: center; padding: 10px 0;">
+st.markdown("""
+<div style="display: flex; align-items: center; padding: 10px 0; border-bottom: 2px solid #e6e6e6;">
 <img src='https://yourcompany.com/logo.png' width='120' style='margin-right: 20px'/>
-<h1 style="margin:0; color: #1f2937;">💹 Fund Explorer Dashboard</h1>
-</div><hr>
+<h1 style="margin:0; font-size:2rem; color: #1f2937;">💹 Fund Explorer Dashboard</h1>
+</div>
 """, unsafe_allow_html=True)
 
 # ---------------- TABS ----------------
@@ -138,11 +148,11 @@ tab_details, tab_compare, tab_history = st.tabs(tabs)
 
 # ---------------- FUND DETAILS ----------------
 with tab_details:
+    st.markdown("<div style='background:white; padding:1rem; border-radius:12px; box-shadow:0 6px 18px rgba(0,0,0,0.08); margin-bottom:1rem;'>", unsafe_allow_html=True)
     selected_fund = st.selectbox("Select a fund", funds)
     if selected_fund and username:
         log_action(username, "Viewed fund", selected_fund)
 
-    # Existing commentary
     st.markdown("### 📝 Existing Commentary")
     comments = commentary_data.get(selected_fund, [])
     if comments:
@@ -151,12 +161,11 @@ with tab_details:
     else:
         st.info("No commentary yet.")
 
-    # Fund table
     if selected_fund:
         fund_df = combined_df[combined_df["Fund Name"] == selected_fund]
         st.dataframe(fund_df, use_container_width=True)
 
-    # New commentary input at bottom
+    # New commentary at bottom
     if "comment_input" not in st.session_state:
         st.session_state.comment_input = ""
     comment_value = st.session_state.comment_input
@@ -167,9 +176,11 @@ with tab_details:
             add_comment(selected_fund, comment_to_add, username)
             st.success("Comment added.")
             st.rerun()
+    st.markdown("</div>", unsafe_allow_html=True)
 
 # ---------------- COMPARE FUNDS ----------------
 with tab_compare:
+    st.markdown("<div style='padding-top:0.5rem;'>", unsafe_allow_html=True)
     selected_funds = st.multiselect("Select funds to compare", funds)
     if selected_funds and username:
         log_action(username, "Compared funds", ", ".join(selected_funds))
@@ -180,7 +191,6 @@ with tab_compare:
             st.markdown("<div class='scroll-card fund-card'>", unsafe_allow_html=True)
             st.markdown(f"### {fund}")
 
-            # Existing commentary at top
             existing_comments = commentary_data.get(fund, [])
             if existing_comments:
                 st.markdown("**📝 Existing Commentary**")
@@ -189,14 +199,16 @@ with tab_compare:
             else:
                 st.info("No commentary yet.")
 
-            # Full table
             fund_df = combined_df[combined_df["Fund Name"] == fund]
             if not fund_df.empty:
+                # horizontal scroll with fixed headers
+                st.markdown("<div style='overflow-x:auto;'>", unsafe_allow_html=True)
                 st.dataframe(fund_df, use_container_width=True)
+                st.markdown("</div>", unsafe_allow_html=True)
             else:
                 st.warning("No data for this fund.")
 
-            # New commentary input at bottom
+            # New commentary at bottom
             comment_key = f"comment_input_{fund}"
             if comment_key not in st.session_state:
                 st.session_state[comment_key] = ""
@@ -210,9 +222,11 @@ with tab_compare:
 
             st.markdown("</div>", unsafe_allow_html=True)
         st.markdown("</div>", unsafe_allow_html=True)
+    st.markdown("</div>", unsafe_allow_html=True)
 
 # ---------------- MY HISTORY ----------------
 with tab_history:
+    st.markdown("<div style='background:white; padding:1rem; border-radius:12px; box-shadow:0 6px 18px rgba(0,0,0,0.08); margin-bottom:1rem;'>", unsafe_allow_html=True)
     st.markdown("### 📁 My Activity History")
     if username:
         logs = get_user_logs(username)
@@ -223,3 +237,4 @@ with tab_history:
             st.download_button("📥 Download JSON", df_logs.to_json(orient="records", indent=2).encode(), "activity.json")
         else:
             st.info("No activity yet")
+    st.markdown("</div>", unsafe_allow_html=True)
