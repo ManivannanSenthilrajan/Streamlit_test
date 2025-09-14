@@ -26,6 +26,8 @@ html, body, [class*="css"] {
     background-color: #F8F9FA;
     color: #333;
 }
+
+/* Header */
 .app-header {
     display: flex;
     align-items: center;
@@ -39,6 +41,8 @@ html, body, [class*="css"] {
     margin: 0;
     color: #1F2937;
 }
+
+/* Tabs */
 .stTabs [data-baseweb="tab-list"] {
     display: flex;
     gap: 6px;
@@ -56,6 +60,8 @@ html, body, [class*="css"] {
     background-color: #A44B3F !important;
     color: white !important;
 }
+
+/* Table styling */
 table.dataframe {
     border-collapse: collapse;
 }
@@ -73,6 +79,8 @@ table.dataframe td, table.dataframe th {
 table.dataframe tbody tr:nth-child(even) td {
     background-color: #FAFAFA;
 }
+
+/* Comment cards */
 .comment-card {
     background: #fff;
     border: 1px solid #e0e0e0;
@@ -80,10 +88,18 @@ table.dataframe tbody tr:nth-child(even) td {
     padding: 8px 10px;
     margin-bottom: 8px;
     white-space: pre-line;
+    max-height: 500px;
+    overflow-y: auto;
 }
-.comment-meta {
-    font-size: 0.8rem;
-    color: #666;
+
+/* Softer multi-select and selectbox */
+div.stMultiSelect [role="listbox"], div.stMultiSelect [role="combobox"],
+div.stSelectbox [role="combobox"] {
+    border: 1px solid #ccc !important;
+    box-shadow: none !important;
+}
+div.stSelectbox:focus-within, div.stMultiSelect:focus-within {
+    outline: 2px solid #A44B3F;
 }
 </style>
 """, unsafe_allow_html=True)
@@ -151,6 +167,23 @@ def load_excel_files(folder, mapping):
                 continue
     return result
 
+def format_comments_grouped(comments):
+    if not comments:
+        return "<i>No commentary yet.</i>"
+    grouped = {}
+    for c in comments:
+        user = c['user']
+        if user not in grouped:
+            grouped[user] = []
+        grouped[user].append(c)
+    lines = []
+    for user, user_comments in grouped.items():
+        lines.append(f"<b>{user}</b>")
+        for c in user_comments:
+            lines.append(f"<i>{c['timestamp']}: {c['comment']}</i>")
+        lines.append("<br>")
+    return "\n".join(lines)
+
 # ---------------- LOAD DATA ----------------
 dataframes = load_excel_files(FUND_DATA_FOLDER, SHEET_MAPPING)
 commentary_data = load_json_file(COMMENTARY_FILE, {})
@@ -172,25 +205,25 @@ st.markdown("""
 
 tab_fund, tab_compare, tab_history = st.tabs(["Fund Details", "Compare Funds", "History"])
 
-# --- FUND DETAILS TAB ---
+# ---------------- FUND DETAILS ----------------
 with tab_fund:
     if funds:
-        selected_fund = st.selectbox("Select Fund", funds)
+        selected_fund = st.selectbox("Select Fund", funds, key="fund_select")
         if selected_fund:
-            log_action(username, "Viewed fund details", selected_fund)
+            if "last_fund" not in st.session_state or st.session_state.last_fund != selected_fund:
+                log_action(username, "Viewed fund details", selected_fund)
+                st.session_state.last_fund = selected_fund
+
             df = combined_df[combined_df["Fund Name"] == selected_fund]
             comments = commentary_data.get(selected_fund, [])
 
             col1, col2 = st.columns([3, 1])
             with col1:
-                st.dataframe(df, use_container_width=True)
+                st.dataframe(df, use_container_width=True, height=500)
             with col2:
                 st.markdown("### Commentary")
-                if comments:
-                    consolidated_text = "\n".join([f"{c['timestamp']} | {c['user']}: {c['comment']}" for c in comments])
-                    st.markdown(f"<div class='comment-card'><i>{consolidated_text}</i></div>", unsafe_allow_html=True)
-                else:
-                    st.markdown("<div class='comment-card'><i>No commentary yet.</i></div>", unsafe_allow_html=True)
+                formatted_comments = format_comments_grouped(comments)
+                st.markdown(f"<div class='comment-card'>{formatted_comments}</div>", unsafe_allow_html=True)
 
             with st.form(f"comment_form_{selected_fund}", clear_on_submit=True):
                 new_comment = st.text_area("Add Commentary")
@@ -202,62 +235,60 @@ with tab_fund:
     else:
         st.info("No funds loaded.")
 
-# --- COMPARE FUNDS TAB ---
+# ---------------- COMPARE FUNDS ----------------
 with tab_compare:
-    selected_funds = st.multiselect("Select funds to compare", funds)
-    
+    selected_funds = st.multiselect("Select funds to compare", funds, key="compare_funds")
     if selected_funds:
+        if "last_compare_funds" not in st.session_state or st.session_state.last_compare_funds != selected_funds:
+            log_action(username, "Selected funds to compare", f"{selected_funds}")
+            st.session_state.last_compare_funds = selected_funds
+
         df_selected = combined_df[combined_df["Fund Name"].isin(selected_funds)]
-        
         all_attributes = list(df_selected.columns)
         all_attributes.remove("Fund Name")
+
         attributes_to_compare = st.multiselect(
             "Select attributes to compare",
             options=all_attributes,
-            default=all_attributes[:5]
+            default=all_attributes[:5],
+            key="compare_attributes"
         )
-        
         if attributes_to_compare:
+            if "last_compare_attrs" not in st.session_state or st.session_state.last_compare_attrs != attributes_to_compare:
+                log_action(username, "Selected attributes for comparison", f"{attributes_to_compare}")
+                st.session_state.last_compare_attrs = attributes_to_compare
+
             comparison_df = df_selected[["Fund Name"] + attributes_to_compare].set_index("Fund Name")
             st.dataframe(comparison_df, use_container_width=True)
-
-            # Log compare action
             log_action(username, "Compare funds", f"Funds: {selected_funds}, Attributes: {attributes_to_compare}")
 
-            st.markdown("### Commentary for Selected Funds")
-            for f in selected_funds:
+            if st.download_button("Download Comparison CSV", comparison_df.to_csv(index=True).encode(), "comparison.csv"):
+                log_action(username, "Downloaded comparison CSV", f"{selected_funds} | {attributes_to_compare}")
+
+            # Show commentary side by side
+            n = len(selected_funds)
+            cols = st.columns(n)
+            for i, f in enumerate(selected_funds):
                 comments = commentary_data.get(f, [])
-                if comments:
-                    consolidated_text = "\n".join([f"{c['timestamp']} | {c['user']}: {c['comment']}" for c in comments])
-                    st.markdown(f"<b>{f}</b><div class='comment-card'><i>{consolidated_text}</i></div>", unsafe_allow_html=True)
-                else:
-                    st.markdown(f"<b>{f}</b><div class='comment-card'><i>No commentary yet.</i></div>", unsafe_allow_html=True)
+                formatted_comments = format_comments_grouped(comments)
+                with cols[i]:
+                    st.markdown(f"<b>{f}</b><div class='comment-card'>{formatted_comments}</div>", unsafe_allow_html=True)
         else:
             st.warning("Please select at least one attribute to compare.")
     else:
         st.info("Select at least one fund.")
 
-# --- HISTORY TAB ---
+# ---------------- HISTORY ----------------
 with tab_history:
-    logs = load_json_file(LOG_FILE, [])  # reload fresh every time
+    logs = load_json_file(LOG_FILE, [])
     if logs:
         df_logs = pd.DataFrame(logs)
         st.dataframe(df_logs, use_container_width=True)
 
-        # Download CSV with logging
-        if st.download_button(
-            "Download CSV",
-            df_logs.to_csv(index=False).encode(),
-            "history.csv"
-        ):
+        if st.download_button("Download CSV", df_logs.to_csv(index=False).encode(), "history.csv"):
             log_action(username, "Downloaded history CSV", f"{len(df_logs)} records")
 
-        # Download JSON with logging
-        if st.download_button(
-            "Download JSON",
-            json.dumps(logs, indent=2).encode(),
-            "history.json"
-        ):
+        if st.download_button("Download JSON", json.dumps(logs, indent=2).encode(), "history.json"):
             log_action(username, "Downloaded history JSON", f"{len(df_logs)} records")
     else:
         st.info("No activity recorded yet.")
