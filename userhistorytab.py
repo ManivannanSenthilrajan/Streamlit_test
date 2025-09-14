@@ -28,7 +28,7 @@ st.markdown("""
 .comment-box { border: 1px solid #e6e6e6; border-radius: 8px; background: #fff; padding: 0.6rem; margin-bottom: 0.5rem; }
 .timestamp { color: #6c757d; font-size: 0.85rem; }
 .activity-log { font-size: 0.9rem; margin-bottom: 0.3rem; }
-.kpi { background: white; padding: 0.6rem; border-radius: 8px; box-shadow: 0 3px 8px rgba(0,0,0,0.04); }
+.kpi { background: white; padding: 0.6rem; border-radius: 8px; box-shadow: 0 3px 8px rgba(0,0,0,0.04); min-width: 120px; text-align:center;}
 </style>
 """, unsafe_allow_html=True)
 
@@ -59,16 +59,20 @@ def get_user_logs(user):
     return logs.get(user, [])
 
 def add_comment(fund_name, comment, user):
+    """Append a new commentary for a fund, visible to all users."""
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     commentary = load_json_file(COMMENTARY_FILE)
     if fund_name not in commentary:
         commentary[fund_name] = []
-    commentary[fund_name].append({"timestamp": timestamp, "comment": comment, "user": user})
+    commentary[fund_name].append({
+        "timestamp": timestamp,
+        "comment": comment,
+        "user": user
+    })
     save_json_file(COMMENTARY_FILE, commentary)
     log_action(user, "Added commentary", fund_name)
 
 def load_excel_files_from_folder(folder, sheet_mapping):
-    """Load Excel sheets, assign fund name from filename (filea.xlsx -> A)"""
     files = glob(os.path.join(folder, "*.xls*"))
     dataframes = {}
     if not files:
@@ -77,7 +81,7 @@ def load_excel_files_from_folder(folder, sheet_mapping):
 
     for file in files:
         fname = os.path.basename(file)
-        fund_name = os.path.splitext(fname)[0].replace("file", "").upper()  # filea.xlsx -> A
+        fund_name = os.path.splitext(fname)[0].replace("file", "").upper()
         if fname not in sheet_mapping:
             st.warning(f"Skipping {fname} (no entry in SHEET_MAPPING).")
             continue
@@ -121,6 +125,7 @@ if not dataframes:
 commentary_data = load_json_file(COMMENTARY_FILE)
 
 # ---------------- SIDEBAR ----------------
+st.sidebar.image("https://yourcompany.com/logo.png", width=150)  # Replace with your logo URL
 st.sidebar.header("👤 User")
 username = st.sidebar.text_input("Enter your name", placeholder="e.g. Alice").strip()
 
@@ -164,11 +169,20 @@ if not funds:
     st.warning("No funds match your search/filter. Adjust search or selected files.")
     st.stop()
 
-# ---------------- MAIN UI ----------------
-st.markdown("<h1>💹 Fund Explorer</h1>", unsafe_allow_html=True)
-st.markdown("Modern dashboard for viewing, comparing, and commenting on funds. Persistent history included.")
+# ---------------- HEADER ----------------
+st.markdown(
+    """
+    <div style="display: flex; align-items: center; padding: 10px 0;">
+        <img src='https://yourcompany.com/logo.png' width='120' style='margin-right: 20px'/>
+        <h1 style="margin:0; color: #1f2937;">💹 Fund Explorer Dashboard</h1>
+    </div>
+    <hr>
+    """, unsafe_allow_html=True
+)
 
-tab_details, tab_compare, tab_history = st.tabs(["🔍 Fund Details", "📊 Compare Funds", "📁 My History"])
+# ---------------- MAIN TABS ----------------
+tabs = ["🔍 Fund Details", "📊 Compare Funds", "📁 My History"]
+tab_details, tab_compare, tab_history = st.tabs(tabs)
 
 # ---------------- TAB: Fund Details ----------------
 with tab_details:
@@ -178,24 +192,38 @@ with tab_details:
             log_action(username, "Viewed fund", selected_fund)
 
         fund_df = combined_df[combined_df["Fund Name"] == selected_fund]
+
+        # Placeholder KPI cards
+        st.markdown(
+            f"""
+            <div style='display: flex; gap: 1rem; flex-wrap: wrap; margin-bottom:1rem;'>
+                <div class='kpi'><h4>NAV</h4><p>-</p></div>
+                <div class='kpi'><h4>AUM</h4><p>-</p></div>
+            </div>
+            """, unsafe_allow_html=True
+        )
+
         st.markdown(f"<div class='fund-card'><h3>📄 {selected_fund}</h3></div>", unsafe_allow_html=True)
         st.dataframe(fund_df, use_container_width=True)
 
-        # Commentary
-        st.markdown("### 📝 Commentary")
-        prev_comments = commentary_data.get(selected_fund, [])
-        if prev_comments:
-            with st.expander("View previous commentary", expanded=True):
-                for entry in reversed(prev_comments):
-                    user_info = f" by {entry['user']}" if 'user' in entry else ""
+        # Universal Commentary
+        st.markdown("### 📝 Commentary (visible to all users)")
+        comments = commentary_data.get(selected_fund, [])
+        if comments:
+            with st.expander("View all commentary", expanded=True):
+                for entry in reversed(comments):
+                    user_info = entry.get("user", "Unknown")
                     st.markdown(
-                        f"<div class='comment-box'><span class='timestamp'>{entry['timestamp']}{user_info}</span><br>{entry['comment']}</div>",
+                        f"<div class='comment-box'>"
+                        f"<span class='timestamp'>{entry['timestamp']} by {user_info}</span><br>"
+                        f"{entry['comment']}</div>",
                         unsafe_allow_html=True
                     )
         else:
             st.info("No commentary yet for this fund.")
 
-        new_comment = st.text_area("Add commentary (this will be appended):", key="new_comment")
+        # Add new commentary
+        new_comment = st.text_area("Add commentary (this will be visible to all users):", key=f"comment_{selected_fund}")
         if st.button("💾 Append Commentary"):
             if not username:
                 st.warning("Enter your name in the sidebar before adding commentary.")
@@ -205,7 +233,7 @@ with tab_details:
                 add_comment(selected_fund, new_comment.strip(), username)
                 commentary_data = load_json_file(COMMENTARY_FILE)
                 st.success("Comment added.")
-                st.session_state["new_comment"] = ""
+                st.session_state[f"comment_{selected_fund}"] = ""
 
 # ---------------- TAB: Compare Funds ----------------
 with tab_compare:
@@ -234,26 +262,30 @@ with tab_compare:
 # ---------------- TAB: My History ----------------
 with tab_history:
     st.markdown("<h3>📁 My Activity History</h3>", unsafe_allow_html=True)
+    
     if not username:
         st.info("Enter your name in the sidebar to view activity history.")
     else:
         logs = get_user_logs(username)
+        
         if not logs:
             st.info("No activity found for your user.")
         else:
-            for entry in reversed(logs):
-                st.markdown(
-                    f"<div class='activity-log'><span class='timestamp'>{entry['timestamp']}</span><br>"
-                    f"**{entry['action']}** — {entry['details']}</div>",
-                    unsafe_allow_html=True
-                )
+            df_logs = pd.DataFrame(logs).sort_values("timestamp", ascending=False).reset_index(drop=True)
+
+            # Show table
+            st.dataframe(df_logs, use_container_width=True)
+
+            # Download buttons
             st.download_button(
-                label="Download my activity (JSON)",
-                data=json.dumps(logs, indent=2),
-                file_name=f"{username.replace(' ','_')}_activity.json",
+                label="📥 Download history CSV",
+                data=df_logs.to_csv(index=False).encode('utf-8'),
+                file_name=f"{username}_activity.csv",
+                mime="text/csv"
+            )
+            st.download_button(
+                label="📥 Download history JSON",
+                data=df_logs.to_json(orient="records", indent=2),
+                file_name=f"{username}_activity.json",
                 mime="application/json"
             )
-
-st.markdown("---")
-st.caption("Edit SHEET_MAPPING at the top to match each file → sheet. Fund name comes from file name (filea.xlsx → A).")
-
