@@ -79,6 +79,7 @@ table.dataframe tbody tr:nth-child(even) td {
     border-radius: 6px;
     padding: 8px 10px;
     margin-bottom: 8px;
+    white-space: pre-line;
 }
 .comment-meta {
     font-size: 0.8rem;
@@ -153,7 +154,6 @@ def load_excel_files(folder, mapping):
 # ---------------- LOAD DATA ----------------
 dataframes = load_excel_files(FUND_DATA_FOLDER, SHEET_MAPPING)
 commentary_data = load_json_file(COMMENTARY_FILE, {})
-logs_data = load_json_file(LOG_FILE, [])
 
 # Sidebar
 with st.sidebar:
@@ -181,26 +181,24 @@ with tab_fund:
             df = combined_df[combined_df["Fund Name"] == selected_fund]
             comments = commentary_data.get(selected_fund, [])
 
-            # Layout: table left, commentary right
-            col1, col2 = st.columns([3,1])
+            col1, col2 = st.columns([3, 1])
             with col1:
                 st.dataframe(df, use_container_width=True)
             with col2:
                 st.markdown("### Commentary")
-                for c in reversed(comments):
-                    st.markdown(
-                        f"<div class='comment-card'><div class='comment-meta'>{c['timestamp']} | {c['user']}</div><div>{c['comment']}</div></div>",
-                        unsafe_allow_html=True
-                    )
+                if comments:
+                    consolidated_text = "\n".join([f"{c['timestamp']} | {c['user']}: {c['comment']}" for c in comments])
+                    st.markdown(f"<div class='comment-card'><i>{consolidated_text}</i></div>", unsafe_allow_html=True)
+                else:
+                    st.markdown("<div class='comment-card'><i>No commentary yet.</i></div>", unsafe_allow_html=True)
 
-            # New commentary form below table
             with st.form(f"comment_form_{selected_fund}", clear_on_submit=True):
                 new_comment = st.text_area("Add Commentary")
                 submit = st.form_submit_button("Submit")
                 if submit and new_comment.strip():
                     add_comment(selected_fund, new_comment.strip(), username)
                     st.success("Comment added!")
-                    st.rerun()
+                    st.experimental_rerun()
     else:
         st.info("No funds loaded.")
 
@@ -211,7 +209,6 @@ with tab_compare:
     if selected_funds:
         df_selected = combined_df[combined_df["Fund Name"].isin(selected_funds)]
         
-        # Attributes selection
         all_attributes = list(df_selected.columns)
         all_attributes.remove("Fund Name")
         attributes_to_compare = st.multiselect(
@@ -221,26 +218,20 @@ with tab_compare:
         )
         
         if attributes_to_compare:
-            # Side-by-side table
             comparison_df = df_selected[["Fund Name"] + attributes_to_compare].set_index("Fund Name")
             st.dataframe(comparison_df, use_container_width=True)
 
-            # Log the compare action for history
+            # Log compare action
             log_action(username, "Compare funds", f"Funds: {selected_funds}, Attributes: {attributes_to_compare}")
 
-            # Show commentary for selected funds below table
             st.markdown("### Commentary for Selected Funds")
             for f in selected_funds:
                 comments = commentary_data.get(f, [])
                 if comments:
-                    st.markdown(f"**{f}**")
-                    for c in reversed(comments):
-                        st.markdown(
-                            f"<div class='comment-card'><div class='comment-meta'>{c['timestamp']} | {c['user']}</div><div>{c['comment']}</div></div>",
-                            unsafe_allow_html=True
-                        )
+                    consolidated_text = "\n".join([f"{c['timestamp']} | {c['user']}: {c['comment']}" for c in comments])
+                    st.markdown(f"<b>{f}</b><div class='comment-card'><i>{consolidated_text}</i></div>", unsafe_allow_html=True)
                 else:
-                    st.markdown(f"**{f}**: No comments")
+                    st.markdown(f"<b>{f}</b><div class='comment-card'><i>No commentary yet.</i></div>", unsafe_allow_html=True)
         else:
             st.warning("Please select at least one attribute to compare.")
     else:
@@ -248,11 +239,25 @@ with tab_compare:
 
 # --- HISTORY TAB ---
 with tab_history:
-    logs = load_json_file(LOG_FILE, [])
+    logs = load_json_file(LOG_FILE, [])  # reload fresh every time
     if logs:
         df_logs = pd.DataFrame(logs)
         st.dataframe(df_logs, use_container_width=True)
-        st.download_button("Download CSV", df_logs.to_csv(index=False).encode(), "history.csv")
-        st.download_button("Download JSON", json.dumps(logs, indent=2).encode(), "history.json")
+
+        # Download CSV with logging
+        if st.download_button(
+            "Download CSV",
+            df_logs.to_csv(index=False).encode(),
+            "history.csv"
+        ):
+            log_action(username, "Downloaded history CSV", f"{len(df_logs)} records")
+
+        # Download JSON with logging
+        if st.download_button(
+            "Download JSON",
+            json.dumps(logs, indent=2).encode(),
+            "history.json"
+        ):
+            log_action(username, "Downloaded history JSON", f"{len(df_logs)} records")
     else:
         st.info("No activity recorded yet.")
