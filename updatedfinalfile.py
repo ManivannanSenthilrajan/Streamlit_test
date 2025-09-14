@@ -192,6 +192,8 @@ commentary_data = load_json_file(COMMENTARY_FILE, {})
 with st.sidebar:
     st.header("User")
     username = st.text_input("Enter your name", value="")
+    # Option for commentary position
+    commentary_position = st.radio("Commentary position in Fund Details tab:", ["Right", "Below"])
 
 combined_df = pd.concat(dataframes.values(), ignore_index=True) if dataframes else pd.DataFrame()
 funds = sorted(combined_df["Fund Name"].unique()) if not combined_df.empty else []
@@ -217,10 +219,20 @@ with tab_fund:
             df = combined_df[combined_df["Fund Name"] == selected_fund]
             comments = commentary_data.get(selected_fund, [])
 
-            col1, col2 = st.columns([3, 1])
-            with col1:
+            csv_data = df.to_csv(index=False).encode()
+            if st.download_button("Download Fund CSV", csv_data, f"{selected_fund}.csv"):
+                log_action(username, "Downloaded fund CSV", selected_fund)
+
+            if commentary_position == "Right":
+                col1, col2 = st.columns([3, 1])
+                with col1:
+                    st.dataframe(df, use_container_width=True, height=500)
+                with col2:
+                    st.markdown("### Commentary")
+                    formatted_comments = format_comments_grouped(comments)
+                    st.markdown(f"<div class='comment-card'>{formatted_comments}</div>", unsafe_allow_html=True)
+            else:
                 st.dataframe(df, use_container_width=True, height=500)
-            with col2:
                 st.markdown("### Commentary")
                 formatted_comments = format_comments_grouped(comments)
                 st.markdown(f"<div class='comment-card'>{formatted_comments}</div>", unsafe_allow_html=True)
@@ -231,7 +243,7 @@ with tab_fund:
                 if submit and new_comment.strip():
                     add_comment(selected_fund, new_comment.strip(), username)
                     st.success("Comment added!")
-                    st.experimental_rerun()
+                    st.rerun()
     else:
         st.info("No funds loaded.")
 
