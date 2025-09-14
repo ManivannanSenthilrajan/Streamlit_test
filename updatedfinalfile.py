@@ -149,17 +149,19 @@ with tab_details:
     else:
         st.info("No commentary yet.")
 
-    TEXTAREA_KEY = "comment_input"
-    if TEXTAREA_KEY not in st.session_state:
-        st.session_state[TEXTAREA_KEY] = ""
+    # Safe commentary input
+    if "comment_input" not in st.session_state:
+        st.session_state.comment_input = ""
 
-    new_comment = st.text_area("Add commentary:", value=st.session_state[TEXTAREA_KEY], key=TEXTAREA_KEY)
+    st.text_area("Add commentary:", key="comment_input")
     if st.button("💾 Append Commentary"):
-        if username and new_comment.strip():
-            add_comment(selected_fund, new_comment.strip(), username)
-            commentary_data = load_json_file(COMMENTARY_FILE)
+        comment_value = st.session_state.comment_input.strip()
+        if username and comment_value:
+            add_comment(selected_fund, comment_value, username)
             st.success("Comment added.")
-            st.session_state[TEXTAREA_KEY] = ""
+            # Clear input safely
+            st.session_state.comment_input = ""
+            st.experimental_rerun()
 
     if selected_fund:
         fund_df = combined_df[combined_df["Fund Name"] == selected_fund]
@@ -176,7 +178,6 @@ with tab_compare:
                 st.markdown(f"#### {fund}")
                 fund_df = combined_df[combined_df["Fund Name"] == fund]
                 st.dataframe(fund_df, use_container_width=True)
-                # Commentary
                 comments = commentary_data.get(fund, [])
                 if comments:
                     st.markdown("**📝 Commentary**")
