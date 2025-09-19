@@ -36,9 +36,9 @@ def parse_labels(issue):
     for raw in issue.get("labels", []):
         if "::" in raw:
             key, val = raw.split("::", 1)
-            key = key.strip().split("-", 1)[-1].capitalize()
+            key = key.strip().split("-", 1)[-1].capitalize()  # removes prefix like "01-"
             val = val.strip()
-            parsed[key].append(val)
+            parsed[key].append(val)   # collects multiple values
     return {k: ", ".join(v) for k, v in parsed.items()}
 
 def build_dataframe(issues):
