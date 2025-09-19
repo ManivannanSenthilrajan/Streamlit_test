@@ -163,7 +163,7 @@ else:
 # ---------------- Tabs ----------------
 tab1,tab2,tab3,tab4,tab5 = st.tabs(["Overview","Kanban","Hygiene","Commentary","Edit Issue"])
 
-# -------- Overview --------
+# ----------------- Overview Tab -----------------
 with tab1:
     st.subheader("📊 Overview")
     if not filtered_df.empty:
@@ -175,35 +175,32 @@ with tab1:
     else:
         st.info("No issues to display.")
 
-# -------- Kanban --------
+# ----------------- Kanban Tab -----------------
 with tab2:
     st.subheader("🗂️ Kanban (Sprint → Team → Status)")
-    if not filtered_df.empty:
-        if "sprint" not in filtered_df.columns:
-            st.info("No sprint data found.")
-        else:
-            sprints = filtered_df["sprint"].replace("", "No Sprint").unique()
-            for sprint in sprints:
-                st.markdown(f"### Sprint: {sprint}")
-                sprint_df = filtered_df[filtered_df["sprint"].replace("", "No Sprint")==sprint]
-                teams = sprint_df["team"].replace("", "No Team").unique()
-                st.markdown('<div class="kanban-board">', unsafe_allow_html=True)
-                for team in teams:
-                    st.markdown(f'<div class="kanban-col"><h4>Team: {team}</h4>', unsafe_allow_html=True)
-                    team_df=sprint_df[sprint_df["team"].replace("", "No Team")==team]
-                    statuses=team_df["status"].replace("", "No Status").unique()
-                    for status in statuses:
-                        col_df=team_df[team_df["status"].replace("", "No Status")==status]
-                        st.markdown(f'<h5>{status}</h5>', unsafe_allow_html=True)
-                        for idx,row in col_df.iterrows():
-                            css_class=status_class(row.get("status"))
-                            st.markdown(f"<div class='card {css_class}'><b>{row['title']}</b><br/>#{row['iid']}</div>", unsafe_allow_html=True)
-                    st.markdown('</div>', unsafe_allow_html=True)
+    if not filtered_df.empty and "sprint" in filtered_df.columns:
+        sprints = filtered_df["sprint"].replace("", "No Sprint").unique()
+        for sprint in sprints:
+            st.markdown(f"### Sprint: {sprint}")
+            sprint_df = filtered_df[filtered_df["sprint"].replace("", "No Sprint")==sprint]
+            st.markdown('<div class="kanban-board">', unsafe_allow_html=True)
+            teams = sprint_df["team"].replace("", "No Team").unique()
+            for team in teams:
+                st.markdown(f'<div class="kanban-col"><h4>Team: {team}</h4>', unsafe_allow_html=True)
+                team_df = sprint_df[sprint_df["team"].replace("", "No Team")==team]
+                statuses = team_df["status"].replace("", "No Status").unique()
+                for status in statuses:
+                    col_df = team_df[team_df["status"].replace("", "No Status")==status]
+                    st.markdown(f"<h5>{status}</h5>", unsafe_allow_html=True)
+                    for idx,row in col_df.iterrows():
+                        css_class=status_class(row.get("status"))
+                        st.markdown(f"<div class='card {css_class}'><b>{row['title']}</b><br/>#{row['iid']}</div>", unsafe_allow_html=True)
                 st.markdown('</div>', unsafe_allow_html=True)
+            st.markdown('</div>', unsafe_allow_html=True)
     else:
-        st.info("No issues to display.")
+        st.info("No issues to display or no sprint data.")
 
-# -------- Hygiene --------
+# ----------------- Hygiene Tab -----------------
 with tab3:
     st.subheader("🧹 Hygiene Checks")
     if not filtered_df.empty:
@@ -211,10 +208,10 @@ with tab3:
         missing_df=pd.DataFrame()
         for key in required_keys:
             if key in filtered_df.columns:
-                temp=filtered_df[filtered_df[key]==""][["iid","title",key]]
+                temp = filtered_df[filtered_df[key]==""].copy()
                 temp["field"]=key
                 temp.rename(columns={key:"current_value"}, inplace=True)
-                missing_df=pd.concat([missing_df,temp], ignore_index=True)
+                missing_df = pd.concat([missing_df,temp[["iid","title","field","current_value"]]], ignore_index=True)
         if not missing_df.empty:
             for idx,row in missing_df.iterrows():
                 col1,col2,col3,col4=st.columns([1,3,2,2])
@@ -239,7 +236,7 @@ with tab3:
     else:
         st.info("No issues to display.")
 
-# -------- Commentary --------
+# ----------------- Commentary Tab -----------------
 with tab4:
     st.subheader("💬 Commentary")
     commentary=load_commentary()
@@ -267,7 +264,7 @@ with tab4:
     else:
         st.info("No sprint selected.")
 
-# -------- Edit Issue --------
+# ----------------- Edit Issue Tab -----------------
 with tab5:
     st.subheader("✏️ Edit Issue")
     if not filtered_df.empty:
