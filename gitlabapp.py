@@ -4,7 +4,11 @@ import pandas as pd
 import json
 import os
 from io import BytesIO
+import urllib3
 
+# ------------------------
+# Page Config
+# ------------------------
 st.set_page_config(page_title="GitLab Issues Dashboard", layout="wide")
 
 # ------------------------
@@ -37,13 +41,13 @@ st.markdown(
 # ------------------------
 # Helpers
 # ------------------------
-def fetch_issues(project_id, token):
-    url = f"https://gitlab.com/api/v4/projects/{project_id}/issues?per_page=100"
+def fetch_issues(base_url, project_id, token, verify_ssl=True):
+    url = f"{base_url}/api/v4/projects/{project_id}/issues?per_page=100"
     headers = {"PRIVATE-TOKEN": token}
     issues = []
     page = 1
     while True:
-        resp = requests.get(f"{url}&page={page}", headers=headers)
+        resp = requests.get(f"{url}&page={page}", headers=headers, verify=verify_ssl)
         if resp.status_code != 200:
             st.error(f"Error fetching issues: {resp.text}")
             break
@@ -92,7 +96,8 @@ def download_excel(df, filename="data.xlsx"):
     buffer = BytesIO()
     df.to_excel(buffer, index=False)
     buffer.seek(0)
-    st.download_button("⬇️ Download Excel", data=buffer, file_name=filename, mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+    st.download_button("⬇️ Download Excel", data=buffer, file_name=filename,
+                       mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
 def load_commentary():
     if os.path.exists("commentary.json"):
@@ -104,10 +109,10 @@ def save_commentary(data):
     with open("commentary.json", "w") as f:
         json.dump(data, f, indent=2)
 
-def update_issue(project_id, token, iid, body):
-    url = f"https://gitlab.com/api/v4/projects/{project_id}/issues/{iid}"
+def update_issue(base_url, project_id, token, iid, body, verify_ssl=True):
+    url = f"{base_url}/api/v4/projects/{project_id}/issues/{iid}"
     headers = {"PRIVATE-TOKEN": token}
-    resp = requests.put(url, headers=headers, json=body)
+    resp = requests.put(url, headers=headers, json=body, verify=verify_ssl)
     return resp
 
 def status_class(status):
@@ -123,24 +128,31 @@ def status_class(status):
     return "status-todo"
 
 # ------------------------
-# Sidebar
+# Sidebar Inputs
 # ------------------------
 st.sidebar.header("🔑 GitLab Connection")
+base_url = st.sidebar.text_input("GitLab Base URL", value="https://gitlab.com")
 project_id = st.sidebar.text_input("Project ID")
 access_token = st.sidebar.text_input("Access Token", type="password")
+verify_ssl = st.sidebar.checkbox("Verify SSL Certificates", value=True)
 
+# ------------------------
+# Fetch & Filter Issues
+# ------------------------
 issues, df = [], pd.DataFrame()
 
 if project_id and access_token:
-    issues = fetch_issues(project_id, access_token)
+    try:
+        issues = fetch_issues(base_url, project_id, access_token, verify_ssl)
+    except requests.exceptions.SSLError as e:
+        st.error(f"SSL Error: {e}. You may need to disable SSL verification for self-signed certs.")
     if issues:
         df = issues_to_df(issues)
-
-        # Filters
+        # Sidebar Filters
         st.sidebar.header("📊 Filters")
-        sprint_filter = st.sidebar.multiselect("Sprint", options=sorted(df["sprint"].dropna().unique()))
-        team_filter = st.sidebar.multiselect("Team", options=sorted(df["team"].dropna().unique()))
-        status_filter = st.sidebar.multiselect("Status", options=sorted(df["status"].dropna().unique()))
+        sprint_filter = st.sidebar.multiselect("Sprint", sorted(df["sprint"].dropna().unique()))
+        team_filter = st.sidebar.multiselect("Team", sorted(df["team"].dropna().unique()))
+        status_filter = st.sidebar.multiselect("Status", sorted(df["status"].dropna().unique()))
 
         filtered_df = df.copy()
         if sprint_filter:
@@ -169,7 +181,7 @@ with tab1:
         st.dataframe(counts)
         download_excel(filtered_df, "overview.xlsx")
 
-# --- By Sprint–Team–Status ---
+# --- Kanban Tab ---
 with tab2:
     st.subheader("🗂️ Sprint → Team → Status (Kanban)")
     if not filtered_df.empty:
@@ -194,10 +206,9 @@ with tab2:
                             )
         download_excel(filtered_df, "by_sprint.xlsx")
 
-# --- Hygiene ---
+# --- Hygiene Tab ---
 with tab3:
     st.subheader("🧹 Hygiene Checks (Fixable)")
-
     if not filtered_df.empty:
         hygiene_checks = {
             "No Team": filtered_df[filtered_df["team"].isna()],
@@ -207,43 +218,44 @@ with tab3:
             "No Title": filtered_df[filtered_df["title"].isna()],
             "No Milestone": filtered_df[filtered_df["milestone"].isna()],
         }
-
         for check, subset in hygiene_checks.items():
             if not subset.empty:
                 st.markdown(f"### {check} ({len(subset)})")
                 for _, row in subset.iterrows():
-                    with st.expander(f"#{row['iid']} {row['title']}"):
+                    with st.expander(f"#{row['iid']} {row['title']}", expanded=False):
                         current_labels = row["labels"].split(", ") if row["labels"] else []
                         new_labels = current_labels.copy()
                         body = {}
 
+                        # Status
                         if "Status" in check:
-                            status_val = st.selectbox(
-                                "Set Status",
-                                ["To Do", "In Progress", "Blocked", "Done"],
-                                key=f"status_{row['iid']}"
-                            )
+                            status_val = st.selectbox("Set Status", ["To Do", "In Progress", "Blocked", "Done"],
+                                                      key=f"status_{row['iid']}")
                             new_labels = [l for l in new_labels if not l.lower().startswith("status::")]
                             new_labels.append(f"Status::{status_val}")
 
+                        # Team
                         if "Team" in check:
                             team_val = st.text_input("Set Team", key=f"team_{row['iid']}")
                             if team_val:
                                 new_labels = [l for l in new_labels if not l.lower().startswith("team::")]
                                 new_labels.append(f"Team::{team_val}")
 
+                        # Project
                         if "Project" in check:
-                            project_val = st.text_input("Set Project", key=f"proj_{row['iid']}")
-                            if project_val:
+                            proj_val = st.text_input("Set Project", key=f"proj_{row['iid']}")
+                            if proj_val:
                                 new_labels = [l for l in new_labels if not l.lower().startswith("project::")]
-                                new_labels.append(f"Project::{project_val}")
+                                new_labels.append(f"Project::{proj_val}")
 
+                        # Sprint
                         if "Sprint" in check:
                             sprint_val = st.text_input("Set Sprint", key=f"sprint_{row['iid']}")
                             if sprint_val:
                                 new_labels = [l for l in new_labels if not l.lower().startswith("sprint::")]
                                 new_labels.append(f"Sprint::{sprint_val}")
 
+                        # Title
                         if "Title" in check:
                             new_title = st.text_input("Set Title", value=row["title"], key=f"title_{row['iid']}")
                             if new_title and new_title != row["title"]:
@@ -251,16 +263,15 @@ with tab3:
 
                         if st.button("Apply Fix", key=f"fix_{row['iid']}"):
                             body["labels"] = new_labels
-                            resp = update_issue(project_id, access_token, row["iid"], body)
+                            resp = update_issue(base_url, project_id, access_token, row["iid"], body, verify_ssl)
                             if resp.status_code == 200:
                                 st.success(f"Issue #{row['iid']} updated successfully! ✅")
                                 st.experimental_rerun()
                             else:
                                 st.error(f"Failed: {resp.text}")
-
         download_excel(filtered_df, "hygiene.xlsx")
 
-# --- Commentary ---
+# --- Commentary Tab ---
 with tab4:
     st.subheader("📝 Sprint Commentary")
     commentary_data = load_commentary()
@@ -270,7 +281,7 @@ with tab4:
     if selected_sprint:
         default_text = commentary_data.get(selected_sprint, "")
         text = st.text_area("Enter commentary", value=default_text, height=250)
-        if st.button("💾 Save Commentary"):
+        if st.button("💾 Save Commentary", key=f"save_commentary_{selected_sprint}"):
             commentary_data[selected_sprint] = text
             save_commentary(commentary_data)
             st.success("Commentary saved!")
