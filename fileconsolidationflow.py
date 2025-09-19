@@ -64,29 +64,15 @@ def app():
     # STEP 2: ETL SIMULATION
     # ----------------------------
     st.header("⚙️ Step 2: Run ETL Pipeline")
+    etl_ran = False
     if st.button("Run ETL Process"):
         with st.spinner("Processing files..."):
             time.sleep(2)  # simulate ETL run
         st.success("✅ ETL completed successfully! Data appended to master file.")
-
+        etl_ran = True
         master_df = generate_mock_master_data()
-
-        # --- FUND FILTER ---
-        funds = sorted(master_df["Fund_Name"].unique())
-        selected_fund = st.selectbox("Select Fund to View", options=funds)
-
-        filtered_df = master_df[master_df["Fund_Name"] == selected_fund]
-
-        # --- PIVOT: QUARTER AS COLUMNS, METRICS AS ROWS ---
-        pivot_df = filtered_df.pivot_table(
-            index=["Metric_Name", "Column_Name"],
-            columns="Quarter",
-            values="Value",
-            aggfunc="first"
-        )
-
-        st.markdown(f"### 📊 {selected_fund} – All Quarters")
-        st.dataframe(pivot_df, use_container_width=True)
+    else:
+        master_df = pd.DataFrame()
 
     # ----------------------------
     # VISUAL FLOW DIAGRAM
@@ -105,6 +91,44 @@ def app():
     flow.edge("Master", "Model")
 
     st.graphviz_chart(flow, use_container_width=True)
+
+    # ----------------------------
+    # SHOW TABLE AFTER FLOW DIAGRAM
+    # ----------------------------
+    if etl_ran and not master_df.empty:
+        st.header("📊 Consolidated Data View")
+
+        # --- FILTERS ---
+        funds = sorted(master_df["Fund_Name"].unique())
+        selected_funds = st.multiselect("Select Funds", options=funds, default=funds)
+
+        filtered_df = master_df[master_df["Fund_Name"].isin(selected_funds)]
+
+        # --- PIVOT: COLUMN NAMES AS ROWS, METRICS AS COLUMNS, QUARTERS + YTD AS COLUMNS ---
+        pivot_df = filtered_df.pivot_table(
+            index=["Fund_Name", "Column_Name", "Quarter"],
+            columns="Metric_Name",
+            values="Value",
+            aggfunc="first"
+        ).reset_index()
+
+        # Compute YTD for each Fund + Column_Name
+        ytd_df = (
+            pivot_df.groupby(["Fund_Name", "Column_Name"])
+            .agg({metric: "mean" for metric in pivot_df.columns if metric not in ["Fund_Name", "Column_Name", "Quarter"]})
+            .reset_index()
+        )
+        ytd_df["Quarter"] = "YTD"
+        pivot_df = pd.concat([pivot_df, ytd_df], ignore_index=True)
+
+        final_pivot = pivot_df.pivot_table(
+            index=["Fund_Name", "Column_Name"],
+            columns="Quarter",
+            values=[col for col in pivot_df.columns if col not in ["Fund_Name", "Column_Name", "Quarter"]],
+            aggfunc="first"
+        )
+
+        st.dataframe(final_pivot, use_container_width=True)
 
     # ----------------------------
     # STAR SCHEMA DATA MODEL
