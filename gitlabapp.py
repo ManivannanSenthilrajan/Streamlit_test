@@ -221,3 +221,4 @@ with tab_commentary:
     if st.button("Download Commentary"):
         buf, ext = download_commentary(scope, dates, achievements, next_steps, challenges, fmt)
         st.download_button("Download File", buf, file_name=f"commentary.{ext}")
+
