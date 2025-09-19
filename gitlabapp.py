@@ -81,28 +81,24 @@ def issues_to_df(issues):
         row = {
             "id": i["id"],
             "iid": i["iid"],
-            "title": i["title"],
-            "state": i["state"],
-            "assignee": i["assignee"]["name"] if i.get("assignee") else None,
-            "created_at": i["created_at"],
-            "due_date": i.get("due_date"),
-            "milestone": i["milestone"]["title"] if i.get("milestone") else None,
-            "sprint": labels_dict.get("sprint"),
+            "title": i.get("title", ""),
+            "state": i.get("state", ""),
             "team": labels_dict.get("team"),
             "status": labels_dict.get("status"),
+            "sprint": labels_dict.get("sprint"),
             "project": labels_dict.get("project"),
             "workstream": labels_dict.get("workstream"),
-            "labels": ", ".join(i.get("labels", [])),
-            "web_url": i["web_url"],
+            "milestone": i["milestone"]["title"] if i.get("milestone") else None,
+            "labels": i.get("labels", []),
+            "web_url": i.get("web_url"),
         }
         rows.append(row)
     df = pd.DataFrame(rows)
-    # Ensure columns exist and normalize
-    for col in ["sprint", "team", "status", "project", "workstream"]:
+    # Fill missing values with None
+    for col in ["team", "status", "sprint", "project", "workstream", "milestone"]:
         if col not in df.columns:
             df[col] = None
-        df[col] = df[col].astype(str).str.strip()
-        df[col] = df[col].replace("nan", None)
+        df[col] = df[col].replace({None: None, "": None})
     return df
 
 def download_excel(df, filename="data.xlsx"):
@@ -243,32 +239,28 @@ with tab3:
         for check, subset in hygiene_checks.items():
             if not subset.empty:
                 st.markdown(f"### {check} ({len(subset)})")
-                for _, row in subset.iterrows():
-                    with st.expander(f"#{row['iid']} {row['title']}", expanded=False):
-                        current_labels = row["labels"].split(", ") if row["labels"] else []
+                for idx, row in subset.iterrows():
+                    with st.expander(f"Issue #{row['iid']}: {row['title']}", expanded=False):
+                        key_base = f"{check}_{row['iid']}_{idx}"
+                        current_labels = row["labels"]
                         new_labels = current_labels.copy()
                         body = {}
-
+                        
                         if "Status" in check:
-                            status_val = st.selectbox("Set Status", ["To Do", "In Progress", "Blocked", "Done"],
-                                                      key=f"status_{check}_{row['iid']}")
-                            new_labels = [l for l in new_labels if not l.lower().startswith("status::")]
-                            new_labels.append(f"Status::{status_val}")
-
-                        if "Team" in check:
-                            team_val = st.text_input("Set Team", key=f"team_{check}_{row['iid']}")
-                            if team_val:
-                                new_labels = [l for l in new_labels if not l.lower().startswith("team::")]
-                                new_labels.append(f"Team::{team_val}")
-
-                        if st.button("Apply Fix", key=f"fix_{check}_{row['iid']}"):
-                            body["labels"] = new_labels
-                            resp = update_issue(base_url, project_id, access_token, row["iid"], body, verify_ssl)
-                            if resp.status_code == 200:
-                                st.success(f"Issue #{row['iid']} updated successfully! ✅")
-                                st.experimental_rerun()
-                            else:
-                                st.error(f"Failed: {resp.text}")
+                            status_val = st.selectbox("Set Status",
+                                                      ["To Do","In Progress","Blocked","Done"],
+                                                      key=f"status_{key_base}")
+                            apply_fix = st.button("Apply Fix", key=f"apply_{key_base}")
+                            if apply_fix:
+                                new_labels = [l for l in new_labels if not l.lower().startswith("status::")]
+                                new_labels.append(f"Status::{status_val}")
+                                body["labels"] = new_labels
+                                resp = update_issue(base_url, project_id, access_token, row["iid"], body, verify_ssl)
+                                if resp.status_code == 200:
+                                    st.success(f"Issue #{row['iid']} updated successfully!")
+                                    st.experimental_rerun()
+                                else:
+                                    st.error(f"Failed: {resp.text}")
         download_excel(filtered_df, "hygiene.xlsx")
     else:
         st.info("No issues to display in Hygiene.")
