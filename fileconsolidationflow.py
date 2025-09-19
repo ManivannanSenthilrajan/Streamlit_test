@@ -156,3 +156,4 @@ def app():
     st.graphviz_chart(dot, use_container_width=True)
 
 if __name__ == "__main__":
+    app()
