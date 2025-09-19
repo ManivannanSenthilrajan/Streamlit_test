@@ -2,8 +2,8 @@ import streamlit as st
 import requests
 import pandas as pd
 import json
-import os
 import re
+import os
 
 st.set_page_config(page_title="GitLab Issue Dashboard", layout="wide")
 
@@ -25,7 +25,6 @@ def safe_milestone(issue):
     return ""
 
 def normalize_label(raw_label):
-    # Remove numeric prefix like "07-" and extra spaces
     label = re.sub(r"^\d+\-?\s*", "", raw_label.strip())
     return label
 
@@ -141,20 +140,27 @@ tab1, tab2, tab3, tab4, tab5 = st.tabs(
 )
 
 # ------------------------
-# Tab 1: Overview
+# Tab 1: Overview with clickable filters
 # ------------------------
 with tab1:
     st.subheader("Overview Dashboard")
-    cols = st.columns(4)
-    for i, field in enumerate(["status", "team", "sprint", "project"]):
-        counts = filtered_df[field].replace("", "None").value_counts()
-        with cols[i]:
-            st.metric(label=field.title(), value=len(counts))
-            for k, v in counts.items():
-                st.markdown(f"<div>{k}: {v}</div>", unsafe_allow_html=True)
-    st.markdown("### Full Issue Table")
-    st.dataframe(filtered_df[["team","title","description","status","project","web_url"]])
-    st.download_button("⬇️ Download Overview Data", filtered_df.to_csv(index=False), "overview.csv")
+    for field in ["status", "team", "sprint", "project"]:
+        st.markdown(f"### {field.title()}")
+        values = sorted(filtered_df[field].replace("", "None").unique())
+        for val in values:
+            count = len(filtered_df[filtered_df[field].replace("", "None")==val])
+            if st.button(f"{val} ({count})", key=f"overview_{field}_{val}"):
+                st.session_state[f"filter_{field}"] = val
+
+    temp_df = filtered_df.copy()
+    for field in ["status", "team", "sprint", "project"]:
+        val = st.session_state.get(f"filter_{field}")
+        if val:
+            temp_df = temp_df[temp_df[field].replace("", "None")==val]
+
+    st.markdown("### Issues Table")
+    st.dataframe(temp_df[["team","title","description","status","project","web_url"]])
+    st.download_button("⬇️ Download Overview Data", temp_df.to_csv(index=False), "overview.csv")
 
 # ------------------------
 # Tab 2: Kanban
@@ -166,7 +172,6 @@ with tab2:
     kanban_df[group_by.lower()] = kanban_df[group_by.lower()].replace("", "None")
     swimlanes = kanban_df[group_by.lower()].unique()
     
-    # Main columns: Left = board, Right = issue detail
     board_col, detail_col = st.columns([3,2])
     
     with board_col:
@@ -188,8 +193,121 @@ with tab2:
             st.markdown(f"[Open in GitLab]({issue['web_url']})")
 
 # ------------------------
-# Hygiene, Commentary, Edit tabs remain same as before
+# Tab 3: Hygiene
 # ------------------------
-# [Keep the previous implementation from your working code for Tab 3, Tab 4, Tab 5]
-# Ensure label parsing is consistent with normalize_label, numeric prefixes stripped, etc.
+with tab3:
+    st.subheader("Hygiene Checks")
+    fields = ["team","status","sprint","project","title"]
+    cols = st.columns(len(fields))
+    for i, f in enumerate(fields):
+        with cols[i]:
+            missing_count = len(filtered_df[filtered_df[f]==""])
+            if st.button(f"{f.title()} Missing: {missing_count}", key=f"btn_{f}"):
+                missing = filtered_df[filtered_df[f]==""]
+                for _, row in missing.iterrows():
+                    with st.expander(f"Issue #{row['iid']} - {row['title']}"):
+                        new_title = st.text_input("Title", row["title"], key=f"title_{row['iid']}")
+                        new_desc = st.text_area("Description", row["description"], key=f"desc_{row['iid']}")
+                        new_team = st.text_input("Team", row["team"], key=f"team_{row['iid']}")
+                        new_status = st.text_input("Status", row["status"], key=f"status_{row['iid']}")
+                        new_sprint = st.text_input("Sprint", row["sprint"], key=f"sprint_{row['iid']}")
+                        new_project = st.text_input("Project", row["project"], key=f"project_{row['iid']}")
+                        new_workstream = st.text_input("Workstream", row["workstream"], key=f"workstream_{row['iid']}")
+                        new_milestone = st.text_input("Milestone", row["milestone"], key=f"milestone_{row['iid']}")
+                        if st.button("Apply Fix", key=f"apply_fix_{row['iid']}"):
+                            labels = []
+                            if new_team: labels.append(f"Team::{new_team}")
+                            if new_status: labels.append(f"Status::{new_status}")
+                            if new_sprint: labels.append(f"Sprint::{new_sprint}")
+                            if new_project: labels.append(f"Project::{new_project}")
+                            if new_workstream: labels.append(f"Workstream::{new_workstream}")
+                            if new_milestone: labels.append(f"Milestone::{new_milestone}")
+                            payload = {
+                                "title": new_title,
+                                "description": new_desc,
+                                "labels": labels
+                            }
+                            success = update_issue(base_url, project_id, token, row["iid"], payload)
+                            if success:
+                                st.success("Updated!")
+                            else:
+                                st.error("Failed to update")
 
+# ------------------------
+# Tabs 4 & 5: Commentary & Edit
+# Implement similarly to your previous working version
+# Ensure commentary.json persistence and full edit capabilities
+# ------------------------
+
+# ------------------------
+# Tab 4: Commentary
+# ------------------------
+commentary_file = "commentary.json"
+if os.path.exists(commentary_file):
+    with open(commentary_file, "r") as f:
+        commentary_data = json.load(f)
+else:
+    commentary_data = {}
+
+with tab4:
+    st.subheader("Sprint Commentary")
+    all_sprints = sorted(df["sprint"].replace("", "None").unique())
+    selected_sprint = st.selectbox("Select Sprint", ["None"] + all_sprints)
+    
+    commentary = commentary_data.get(selected_sprint, {
+        "Scope": "", "Key Dates": "", "Achievements": "", "Next Steps": "", "Challenges": ""
+    })
+
+    commentary["Scope"] = st.text_area("Scope", commentary.get("Scope", ""))
+    commentary["Key Dates"] = st.text_area("Key Dates", commentary.get("Key Dates", ""))
+    commentary["Achievements"] = st.text_area("Achievements", commentary.get("Achievements", ""))
+    commentary["Next Steps"] = st.text_area("Next Steps", commentary.get("Next Steps", ""))
+    commentary["Challenges"] = st.text_area("Challenges / Risks", commentary.get("Challenges", ""))
+
+    if st.button("Save Commentary"):
+        commentary_data[selected_sprint] = commentary
+        with open(commentary_file, "w") as f:
+            json.dump(commentary_data, f, indent=2)
+        st.success("Saved successfully!")
+
+    st.download_button("⬇️ Download Commentary JSON", json.dumps(commentary_data, indent=2), "commentary.json")
+
+# ------------------------
+# Tab 5: Full Edit Tab
+# ------------------------
+with tab5:
+    st.subheader("Edit Issues Directly")
+    issue_titles = [f"#{row['iid']} - {row['title']}" for _, row in filtered_df.iterrows()]
+    selected_issue_title = st.selectbox("Select Issue", [""] + issue_titles)
+
+    if selected_issue_title:
+        iid = int(selected_issue_title.split(" ")[0][1:])
+        issue = df[df["iid"]==iid].iloc[0]
+
+        new_title = st.text_input("Title", issue["title"])
+        new_desc = st.text_area("Description", issue["description"])
+        new_team = st.text_input("Team", issue["team"])
+        new_status = st.text_input("Status", issue["status"])
+        new_sprint = st.text_input("Sprint", issue["sprint"])
+        new_project = st.text_input("Project", issue["project"])
+        new_workstream = st.text_input("Workstream", issue["workstream"])
+        new_milestone = st.text_input("Milestone", issue["milestone"])
+
+        if st.button("Apply Changes to GitLab"):
+            labels = []
+            if new_team: labels.append(f"Team::{new_team}")
+            if new_status: labels.append(f"Status::{new_status}")
+            if new_sprint: labels.append(f"Sprint::{new_sprint}")
+            if new_project: labels.append(f"Project::{new_project}")
+            if new_workstream: labels.append(f"Workstream::{new_workstream}")
+            if new_milestone: labels.append(f"Milestone::{new_milestone}")
+            payload = {
+                "title": new_title,
+                "description": new_desc,
+                "labels": labels
+            }
+            success = update_issue(base_url, project_id, token, iid, payload)
+            if success:
+                st.success("Issue updated successfully!")
+            else:
+                st.error("Failed to update issue.")
