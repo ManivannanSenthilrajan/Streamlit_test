@@ -4,11 +4,12 @@ import requests
 import json
 import os
 from io import BytesIO
+import re
 
-# ------------------------ Page config ------------------------
+# ------------------ Page Config ------------------
 st.set_page_config(page_title="GitLab Issues Dashboard", layout="wide")
 
-# ------------------------ CSS Styling ------------------------
+# ------------------ CSS Styling ------------------
 st.markdown("""
 <style>
 body, div, p, span, input, textarea, select, button {
@@ -40,7 +41,42 @@ body, div, p, span, input, textarea, select, button {
 </style>
 """, unsafe_allow_html=True)
 
-# ------------------------ Helper functions ------------------------
+# ------------------ Helper Functions ------------------
+KEY_MAP = {
+    "team": "team",
+    "status": "status",
+    "sprint": "sprint",
+    "project": "project",
+    "milestone": "milestone",
+    "workstream": "workstream"
+}
+
+def normalize_key(lbl_key):
+    # Remove leading numbers/spaces, lowercase
+    key = re.sub(r'^\d+\s*', '', lbl_key).strip().lower().replace(" ", "")
+    return key
+
+def parse_labels_merge(labels):
+    """Parse labels, normalize keys, merge multiple values under same key"""
+    result = {}
+    for lbl in labels:
+        if "::" in lbl:
+            parts = lbl.split("::", 1)
+            raw_key = parts[0].strip()
+            value = parts[1].strip()
+            key_norm = normalize_key(raw_key)
+            std_key = None
+            for k in KEY_MAP:
+                if key_norm.startswith(k):
+                    std_key = KEY_MAP[k]
+                    break
+            if std_key:
+                if std_key in result:
+                    result[std_key] = result[std_key] + ", " + value
+                else:
+                    result[std_key] = value
+    return result
+
 def fetch_issues(base_url, project_id, token, verify_ssl=True):
     url = f"{base_url}/api/v4/projects/{project_id}/issues?per_page=100"
     headers = {"PRIVATE-TOKEN": token}
@@ -58,39 +94,22 @@ def fetch_issues(base_url, project_id, token, verify_ssl=True):
         page += 1
     return issues
 
-def parse_labels_dynamic(labels):
-    """
-    Convert GitLab labels to a dict automatically.
-    - Key::Value format
-    - Strips spaces around key and value
-    - Normalizes key (lowercase, no spaces)
-    """
-    result = {}
-    for lbl in labels:
-        if "::" in lbl:
-            parts = lbl.split("::", 1)
-            key = parts[0].strip().lower().replace(" ", "")
-            value = parts[1].strip()
-            result[key] = value
-    return result
-
 def issues_to_df(issues):
-    all_keys = set()
     rows = []
+    all_keys = set()
     for i in issues:
-        labels_dict = parse_labels_dynamic(i.get("labels", []))
+        labels_dict = parse_labels_merge(i.get("labels", []))
         all_keys.update(labels_dict.keys())
         row = {
             "iid": i["iid"],
-            "title": i.get("title", ""),
-            "description": i.get("description", ""),
-            "labels": i.get("labels", []),
-            "web_url": i.get("web_url"),
+            "title": i.get("title",""),
+            "description": i.get("description",""),
+            "labels": i.get("labels",[]),
+            "web_url": i.get("web_url")
         }
         row.update(labels_dict)
         rows.append(row)
     df = pd.DataFrame(rows)
-    # Ensure all keys appear as columns
     for k in all_keys:
         if k not in df.columns:
             df[k] = None
@@ -117,12 +136,12 @@ def download_excel(df, filename="data.xlsx"):
 
 def load_commentary():
     if os.path.exists("commentary.json"):
-        with open("commentary.json", "r") as f:
+        with open("commentary.json","r") as f:
             return json.load(f)
     return {}
 
 def save_commentary(data):
-    with open("commentary.json", "w") as f:
+    with open("commentary.json","w") as f:
         json.dump(data, f, indent=2)
 
 def update_issue(base_url, project_id, token, iid, body, verify_ssl=True):
@@ -131,14 +150,14 @@ def update_issue(base_url, project_id, token, iid, body, verify_ssl=True):
     resp = requests.put(url, headers=headers, json=body, verify=verify_ssl)
     return resp
 
-# ------------------------ Sidebar ------------------------
+# ------------------ Sidebar ------------------
 st.sidebar.header("🔑 GitLab Connection")
 base_url = st.sidebar.text_input("GitLab Base URL", value="https://gitlab.com")
 project_id = st.sidebar.text_input("Project ID")
 access_token = st.sidebar.text_input("Access Token", type="password")
 verify_ssl = st.sidebar.checkbox("Verify SSL Certificates", value=True)
 
-# ------------------------ Fetch Issues ------------------------
+# ------------------ Fetch Issues ------------------
 df = pd.DataFrame()
 if project_id and access_token:
     issues = fetch_issues(base_url, project_id, access_token, verify_ssl)
@@ -147,9 +166,9 @@ if project_id and access_token:
     else:
         st.warning("No issues found or unable to fetch.")
 else:
-    st.info("Enter Project ID and Access Token in the sidebar to fetch issues.")
+    st.info("Enter Project ID and Access Token to fetch issues.")
 
-# ------------------------ Sidebar Filters ------------------------
+# ------------------ Sidebar Filters ------------------
 if not df.empty:
     st.sidebar.header("📊 Filters")
     filter_cols = [c for c in df.columns if c not in ["iid","title","description","labels","web_url"]]
@@ -164,10 +183,10 @@ if not df.empty:
 else:
     filtered_df = pd.DataFrame()
 
-# ------------------------ Tabs ------------------------
-tab1, tab2, tab3, tab4, tab5 = st.tabs(["Overview", "Kanban", "Hygiene", "Commentary", "Edit Issue"])
+# ------------------ Tabs ------------------
+tab1, tab2, tab3, tab4, tab5 = st.tabs(["Overview","Kanban","Hygiene","Commentary","Edit Issue"])
 
-# --- Overview ---
+# -------- Overview Tab --------
 with tab1:
     st.subheader("📊 Overview")
     if not filtered_df.empty:
@@ -179,97 +198,109 @@ with tab1:
     else:
         st.info("No issues to display.")
 
-# --- Kanban ---
+# -------- Kanban Tab --------
 with tab2:
     st.subheader("🗂️ Kanban (Sprint → Team → Status)")
     if not filtered_df.empty:
-        sprints = filtered_df["sprint"].fillna("No Sprint").unique()
-        for sprint in sprints:
-            st.markdown(f"### Sprint: {sprint}")
-            sprint_df = filtered_df[filtered_df["sprint"].fillna("No Sprint") == sprint]
-            teams = sprint_df["team"].fillna("No Team").unique()
-            for team in teams:
-                st.markdown(f"**Team: {team}**")
-                team_df = sprint_df[sprint_df["team"].fillna("No Team") == team]
-                statuses = team_df["status"].fillna("No Status").unique()
-                st.markdown('<div class="kanban-board">', unsafe_allow_html=True)
-                for status in statuses:
-                    col_df = team_df[team_df["status"].fillna("No Status") == status]
-                    st.markdown(f'<div class="kanban-col"><h4>{status}</h4>', unsafe_allow_html=True)
-                    for idx, row in col_df.iterrows():
-                        css_class = status_class(row.get("status"))
-                        st.markdown(
-                            f"<div class='card {css_class}'><b>{row['title']}</b><br/>#{row['iid']}</div>",
-                            unsafe_allow_html=True
-                        )
+        if "sprint" not in filtered_df.columns:
+            st.info("No sprint data found.")
+        else:
+            sprints = filtered_df["sprint"].fillna("No Sprint").unique()
+            for sprint in sprints:
+                st.markdown(f"### Sprint: {sprint}")
+                sprint_df = filtered_df[filtered_df["sprint"].fillna("No Sprint")==sprint]
+                teams = sprint_df["team"].fillna("No Team").unique()
+                for team in teams:
+                    st.markdown(f"**Team: {team}**")
+                    team_df = sprint_df[sprint_df["team"].fillna("No Team")==team]
+                    statuses = team_df["status"].fillna("No Status").unique()
+                    st.markdown('<div class="kanban-board">', unsafe_allow_html=True)
+                    for status in statuses:
+                        col_df = team_df[team_df["status"].fillna("No Status")==status]
+                        st.markdown(f'<div class="kanban-col"><h4>{status}</h4>', unsafe_allow_html=True)
+                        for idx, row in col_df.iterrows():
+                            css_class = status_class(row.get("status"))
+                            st.markdown(
+                                f"<div class='card {css_class}'><b>{row['title']}</b><br/>#{row['iid']}</div>",
+                                unsafe_allow_html=True)
+                        st.markdown('</div>', unsafe_allow_html=True)
                     st.markdown('</div>', unsafe_allow_html=True)
-                st.markdown('</div>', unsafe_allow_html=True)
-        download_excel(filtered_df, "kanban.xlsx")
     else:
         st.info("No issues to display.")
 
-# --- Hygiene ---
+# -------- Hygiene Tab --------
 with tab3:
     st.subheader("🧹 Hygiene Checks")
     if not filtered_df.empty:
-        # Identify label columns dynamically
-        label_cols = [c for c in filtered_df.columns if c not in ["iid","title","description","labels","web_url"]]
-        for col in label_cols:
-            missing = filtered_df[filtered_df[col].isna()]
-            if not missing.empty:
-                st.markdown(f"### Issues missing {col.capitalize()} ({len(missing)})")
-                for idx, row in missing.iterrows():
-                    key_base = f"{col}_{row['iid']}_{idx}"
-                    with st.expander(f"Issue #{row['iid']}: {row['title']}", expanded=False):
-                        new_val = st.text_input(f"Set {col.capitalize()}", key=f"{key_base}")
-                        if st.button("Apply Fix", key=f"btn_{key_base}"):
-                            # Update GitLab
-                            new_labels = [l for l in row["labels"] if not l.lower().startswith(f"{col.lower()}::")]
-                            new_labels.append(f"{col.capitalize()}::{new_val}")
-                            body = {"labels": new_labels}
-                            resp = update_issue(base_url, project_id, access_token, row["iid"], body, verify_ssl)
-                            if resp.status_code == 200:
-                                st.success(f"Issue #{row['iid']} updated!")
-                                st.experimental_rerun()
-                            else:
-                                st.error(f"Failed: {resp.text}")
-        download_excel(filtered_df, "hygiene.xlsx")
+        required_keys = ["team","status","sprint","project","milestone","workstream","title"]
+        for key in required_keys:
+            missing = filtered_df[filtered_df[key].isna()] if key in filtered_df.columns else filtered_df
+            st.markdown(f"### Missing {key.capitalize()}: {len(missing)}")
+            for idx, row in missing.iterrows():
+                with st.expander(f"#{row['iid']} - {row['title']}"):
+                    st.markdown(f"Current {key}: {row.get(key,'None')}")
+                    new_val = st.text_input(f"Set {key.capitalize()}", value=row.get(key,""), key=f"hyg_{row['iid']}_{key}")
+                    if st.button(f"💾 Apply {key}", key=f"apply_{row['iid']}_{key}"):
+                        new_labels = [l for l in row['labels'] if not normalize_key(l.split('::')[0])==key]
+                        if new_val:
+                            new_labels.append(f"{key.capitalize()}::{new_val}")
+                        body = {"labels": new_labels}
+                        resp = update_issue(base_url, project_id, access_token, row["iid"], body, verify_ssl)
+                        if resp.status_code==200:
+                            st.success("Updated successfully!")
+                            st.experimental_rerun()
+                        else:
+                            st.error(f"Failed: {resp.text}")
     else:
         st.info("No issues to display.")
 
-# --- Commentary ---
+# -------- Commentary Tab --------
 with tab4:
-    st.subheader("📝 Sprint Commentary")
-    commentary_data = load_commentary()
-    sprint_options = sorted(df["sprint"].dropna().unique()) if not df.empty else []
-    selected_sprint = st.selectbox("Select Sprint", sprint_options)
+    st.subheader("💬 Commentary")
+    commentary = load_commentary()
+    sprints = df["sprint"].dropna().unique() if not df.empty and "sprint" in df.columns else []
+    selected_sprint = st.selectbox("Select Sprint", sprints)
     if selected_sprint:
-        default_text = commentary_data.get(selected_sprint, "")
-        text = st.text_area("Enter commentary", value=default_text, height=250)
-        if st.button("💾 Save Commentary", key=f"save_commentary_{selected_sprint}"):
-            commentary_data[selected_sprint] = text
-            save_commentary(commentary_data)
-            st.success("Commentary saved!")
-        st.download_button(
-            "⬇️ Download Commentary JSON",
-            data=json.dumps(commentary_data, indent=2),
-            file_name="commentary.json",
-            mime="application/json",
-        )
+        cmt = commentary.get(selected_sprint, {})
+        scope = st.text_area("Sprint Scope", value=cmt.get("scope",""))
+        capacity = st.text_input("Capacity", value=cmt.get("capacity",""))
+        key_dates = st.text_area("Key Dates", value=cmt.get("key_dates",""))
+        review = st.text_area("Sprint Review", value=cmt.get("review",""))
+        carry_over = st.text_area("Carry Over Issues", value=cmt.get("carry_over",""))
+        next_steps = st.text_area("Next Steps", value=cmt.get("next_steps",""))
+        achievements = st.text_area("Achievements", value=cmt.get("achievements",""))
+        risks = st.text_area("Risks/Challenges", value=cmt.get("risks",""))
+        if st.button("💾 Save Commentary"):
+            commentary[selected_sprint] = {
+                "scope": scope,
+                "capacity": capacity,
+                "key_dates": key_dates,
+                "review": review,
+                "carry_over": carry_over,
+                "next_steps": next_steps,
+                "achievements": achievements,
+                "risks": risks
+            }
+            save_commentary(commentary)
+            st.success("Saved successfully!")
+        st.download_button("⬇️ Download Commentary JSON", data=json.dumps(commentary, indent=2),
+                           file_name="commentary.json", mime="application/json")
+    else:
+        st.info("No sprint selected.")
 
-# --- Edit Issue ---
+# -------- Edit Issue Tab --------
 with tab5:
-    st.subheader("✏️ Edit Any Issue")
-    if not df.empty:
-        issue_map = {f"#{row['iid']} {row['title']}": row['iid'] for idx,row in df.iterrows()}
+    st.subheader("✏️ Edit Issue")
+    if not filtered_df.empty:
+        issue_map = {f"#{row['iid']} - {row['title']}": row["iid"] for idx,row in filtered_df.iterrows()}
         selected_issue = st.selectbox("Select Issue", list(issue_map.keys()))
         if selected_issue:
             iid = issue_map[selected_issue]
-            row = df[df["iid"]==iid].iloc[0]
+            row = filtered_df[filtered_df["iid"]==iid].iloc[0]
             new_title = st.text_input("Title", value=row["title"])
-            new_desc = st.text_area("Description", value=row["description"])
+            new_desc = st.text_area("Description", value=row.get("description",""))
             # Dynamically edit label fields
-            label_cols = [c for c in df.columns if c not in ["iid","title","description","labels","web_url"]]
+            label_cols = [c for c in filtered_df.columns if c not in ["iid","title","description","labels","web_url"]]
             new_labels = []
             for col in label_cols:
                 val = st.text_input(f"{col.capitalize()}", value=row.get(col,""))
