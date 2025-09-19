@@ -5,23 +5,34 @@ import time
 import random
 
 # ----------------------------
-# FAKE DATA GENERATOR
+# MOCK DATA GENERATOR
 # ----------------------------
 def generate_mock_master_data():
+    """Generate a mock master dataset with multiple funds, metrics, columns, and quarters."""
     funds = ["Fund_A", "Fund_B", "Fund_C"]
     metrics = ["Cost Leverage", "Par Value", "Watch List"]
     columns = ["Public Loan", "Price", "Private Loan"]
+    quarters = ["2025-Q1", "2025-Q2", "2025-Q3"]
+
     data = []
     for fund in funds:
-        for metric in metrics:
-            for col in columns:
-                data.append({
-                    "Fund_Name": fund,
-                    "Metric_Name": metric,
-                    "Column_Name": col,
-                    "Quarter": "2025-Q3",
-                    "Value": round(random.uniform(0, 100), 2) if metric != "Watch List" else random.choice(["Yes", "No"])
-                })
+        for quarter in quarters:
+            for metric in metrics:
+                for col in columns:
+                    value = (
+                        round(random.uniform(0, 100), 2)
+                        if metric != "Watch List"
+                        else random.choice(["Yes", "No"])
+                    )
+                    data.append(
+                        {
+                            "Fund_Name": fund,
+                            "Metric_Name": metric,
+                            "Column_Name": col,
+                            "Quarter": quarter,
+                            "Value": value,
+                        }
+                    )
     return pd.DataFrame(data)
 
 # ----------------------------
@@ -32,14 +43,16 @@ def app():
     st.title("🔄 Fund Data ETL Process & Data Model (Simulation)")
 
     st.markdown("""
-    This interactive demo shows **how fund data flows** from Excel files to a consolidated reporting model.
+    This interactive demo shows how fund data flows from quarterly Excel files 
+    into a consolidated **reporting data model**. 
     """)
 
     # ----------------------------
     # STEP 1: FILE UPLOAD SIMULATION
     # ----------------------------
     st.header("📂 Step 1: Upload Files to Landing Zone")
-    uploaded_files = st.file_uploader("Upload one or more Excel files (simulated)", type=["xlsx"], accept_multiple_files=True)
+    uploaded_files = st.file_uploader("Upload one or more Excel files (simulated)", 
+                                      type=["xlsx"], accept_multiple_files=True)
 
     if uploaded_files:
         st.success(f"{len(uploaded_files)} file(s) uploaded to Landing Zone.")
@@ -55,14 +68,30 @@ def app():
         with st.spinner("Processing files..."):
             time.sleep(2)  # simulate ETL run
         st.success("✅ ETL completed successfully! Data appended to master file.")
+
         master_df = generate_mock_master_data()
-        st.dataframe(master_df.head(10), use_container_width=True)
+
+        # --- FUND FILTER ---
+        funds = sorted(master_df["Fund_Name"].unique())
+        selected_fund = st.selectbox("Select Fund to View", options=funds)
+
+        filtered_df = master_df[master_df["Fund_Name"] == selected_fund]
+
+        # --- PIVOT: QUARTER AS COLUMNS, METRICS AS ROWS ---
+        pivot_df = filtered_df.pivot_table(
+            index=["Metric_Name", "Column_Name"],
+            columns="Quarter",
+            values="Value",
+            aggfunc="first"
+        )
+
+        st.markdown(f"### 📊 {selected_fund} – All Quarters")
+        st.dataframe(pivot_df, use_container_width=True)
 
     # ----------------------------
     # VISUAL FLOW DIAGRAM
     # ----------------------------
     st.header("🔀 End-to-End Visual Flow")
-
     flow = graphviz.Digraph(format="png")
     flow.attr(rankdir="LR", bgcolor="white", nodesep="1.0", splines="ortho")
 
@@ -77,13 +106,10 @@ def app():
 
     st.graphviz_chart(flow, use_container_width=True)
 
-    st.info("This process repeats each quarter — just upload new files and re-run ETL.")
-
     # ----------------------------
     # STAR SCHEMA DATA MODEL
     # ----------------------------
     st.header("🔗 Star Schema Data Model")
-
     dot = graphviz.Digraph(format="png")
     dot.attr(rankdir='TB', bgcolor="white", nodesep="0.6")
 
@@ -96,28 +122,6 @@ def app():
     dot.edges([("Facts", "Fund"), ("Facts", "Metric"), ("Facts", "Column"), ("Facts", "Date")])
 
     st.graphviz_chart(dot, use_container_width=True)
-
-    st.subheader("📄 Example of Normalized Data")
-    st.markdown("""
-    **Before (Raw Excel Layout):**
-
-    | Metric        | Public Loan | Price  | Private Loan |
-    |--------------|-------------|--------|-------------|
-    | Cost Leverage| 0.45        | 100.25 | 0.50        |
-    | Par Value    | 5,000,000   | 100,000| 2,000,000   |
-    | Watch List   | Yes         | No     | Yes         |
-
-    **After (Fact Table):**
-
-    | Fund_Name | Metric_Name   | Column_Name  | Quarter | Value      |
-    |----------|---------------|-------------|---------|-----------|
-    | Fund_A   | Cost Leverage | Public Loan | 2025-Q1 | 0.45      |
-    | Fund_A   | Cost Leverage | Price       | 2025-Q1 | 100.25    |
-    | Fund_A   | Cost Leverage | Private Loan| 2025-Q1 | 0.50      |
-    | Fund_A   | Par Value     | Public Loan | 2025-Q1 | 5,000,000 |
-    | Fund_A   | Par Value     | Price       | 2025-Q1 | 100,000   |
-    | Fund_A   | Watch List    | Private Loan| 2025-Q1 | Yes       |
-    """)
 
 if __name__ == "__main__":
     app()
