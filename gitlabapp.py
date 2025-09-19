@@ -52,12 +52,10 @@ KEY_MAP = {
 }
 
 def normalize_key(lbl_key):
-    # Remove leading numbers/spaces, lowercase
     key = re.sub(r'^\d+\s*', '', lbl_key).strip().lower().replace(" ", "")
     return key
 
 def parse_labels_merge(labels):
-    """Parse labels, normalize keys, merge multiple values under same key"""
     result = {}
     for lbl in labels:
         if "::" in lbl:
@@ -112,7 +110,7 @@ def issues_to_df(issues):
     df = pd.DataFrame(rows)
     for k in all_keys:
         if k not in df.columns:
-            df[k] = None
+            df[k] = ""
     return df
 
 def status_class(status):
@@ -205,26 +203,26 @@ with tab2:
         if "sprint" not in filtered_df.columns:
             st.info("No sprint data found.")
         else:
-            sprints = filtered_df["sprint"].fillna("No Sprint").unique()
+            sprints = filtered_df["sprint"].replace("", "No Sprint").unique()
             for sprint in sprints:
                 st.markdown(f"### Sprint: {sprint}")
-                sprint_df = filtered_df[filtered_df["sprint"].fillna("No Sprint")==sprint]
-                teams = sprint_df["team"].fillna("No Team").unique()
+                sprint_df = filtered_df[filtered_df["sprint"].replace("", "No Sprint")==sprint]
+                teams = sprint_df["team"].replace("", "No Team").unique()
+                st.markdown('<div class="kanban-board">', unsafe_allow_html=True)
                 for team in teams:
-                    st.markdown(f"**Team: {team}**")
-                    team_df = sprint_df[sprint_df["team"].fillna("No Team")==team]
-                    statuses = team_df["status"].fillna("No Status").unique()
-                    st.markdown('<div class="kanban-board">', unsafe_allow_html=True)
+                    st.markdown(f'<div class="kanban-col"><h4>Team: {team}</h4>', unsafe_allow_html=True)
+                    team_df = sprint_df[sprint_df["team"].replace("", "No Team")==team]
+                    statuses = team_df["status"].replace("", "No Status").unique()
                     for status in statuses:
-                        col_df = team_df[team_df["status"].fillna("No Status")==status]
-                        st.markdown(f'<div class="kanban-col"><h4>{status}</h4>', unsafe_allow_html=True)
+                        col_df = team_df[team_df["status"].replace("", "No Status")==status]
+                        st.markdown(f'<h5>{status}</h5>', unsafe_allow_html=True)
                         for idx, row in col_df.iterrows():
                             css_class = status_class(row.get("status"))
                             st.markdown(
                                 f"<div class='card {css_class}'><b>{row['title']}</b><br/>#{row['iid']}</div>",
                                 unsafe_allow_html=True)
-                        st.markdown('</div>', unsafe_allow_html=True)
                     st.markdown('</div>', unsafe_allow_html=True)
+                st.markdown('</div>', unsafe_allow_html=True)
     else:
         st.info("No issues to display.")
 
@@ -233,24 +231,37 @@ with tab3:
     st.subheader("🧹 Hygiene Checks")
     if not filtered_df.empty:
         required_keys = ["team","status","sprint","project","milestone","workstream","title"]
+        missing_df = pd.DataFrame()
         for key in required_keys:
-            missing = filtered_df[filtered_df[key].isna()] if key in filtered_df.columns else filtered_df
-            st.markdown(f"### Missing {key.capitalize()}: {len(missing)}")
-            for idx, row in missing.iterrows():
-                with st.expander(f"#{row['iid']} - {row['title']}"):
-                    st.markdown(f"Current {key}: {row.get(key,'None')}")
-                    new_val = st.text_input(f"Set {key.capitalize()}", value=row.get(key,""), key=f"hyg_{row['iid']}_{key}")
-                    if st.button(f"💾 Apply {key}", key=f"apply_{row['iid']}_{key}"):
-                        new_labels = [l for l in row['labels'] if not normalize_key(l.split('::')[0])==key]
+            if key in filtered_df.columns:
+                temp = filtered_df[filtered_df[key]==""][[ "iid", "title", key ]]
+                temp["field"] = key
+                temp.rename(columns={key:"current_value"}, inplace=True)
+                missing_df = pd.concat([missing_df, temp], ignore_index=True)
+        if not missing_df.empty:
+            for idx,row in missing_df.iterrows():
+                col1, col2, col3, col4 = st.columns([1,3,2,2])
+                with col1:
+                    st.write(f"#{row['iid']}")
+                with col2:
+                    st.write(row["title"])
+                with col3:
+                    new_val = st.text_input(f"{row['field']}", value=row["current_value"], key=f"hyg_{row['iid']}_{row['field']}")
+                with col4:
+                    if st.button("💾 Apply", key=f"btn_{row['iid']}_{row['field']}"):
+                        issue_row = filtered_df[filtered_df["iid"]==row["iid"]].iloc[0]
+                        new_labels = [l for l in issue_row["labels"] if normalize_key(l.split("::")[0]) != row["field"]]
                         if new_val:
-                            new_labels.append(f"{key.capitalize()}::{new_val}")
+                            new_labels.append(f"{row['field'].capitalize()}::{new_val}")
                         body = {"labels": new_labels}
                         resp = update_issue(base_url, project_id, access_token, row["iid"], body, verify_ssl)
                         if resp.status_code==200:
-                            st.success("Updated successfully!")
+                            st.success(f"Issue #{row['iid']} updated!")
                             st.experimental_rerun()
                         else:
                             st.error(f"Failed: {resp.text}")
+        else:
+            st.info("No hygiene issues found.")
     else:
         st.info("No issues to display.")
 
@@ -258,7 +269,7 @@ with tab3:
 with tab4:
     st.subheader("💬 Commentary")
     commentary = load_commentary()
-    sprints = df["sprint"].dropna().unique() if not df.empty and "sprint" in df.columns else []
+    sprints = df["sprint"].replace("", None).dropna().unique() if not df.empty and "sprint" in df.columns else []
     selected_sprint = st.selectbox("Select Sprint", sprints)
     if selected_sprint:
         cmt = commentary.get(selected_sprint, {})
@@ -299,7 +310,6 @@ with tab5:
             row = filtered_df[filtered_df["iid"]==iid].iloc[0]
             new_title = st.text_input("Title", value=row["title"])
             new_desc = st.text_area("Description", value=row.get("description",""))
-            # Dynamically edit label fields
             label_cols = [c for c in filtered_df.columns if c not in ["iid","title","description","labels","web_url"]]
             new_labels = []
             for col in label_cols:
