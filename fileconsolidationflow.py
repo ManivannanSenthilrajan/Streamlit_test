@@ -80,22 +80,33 @@ def app():
         master_df = pd.DataFrame()
 
     # ----------------------------
-    # VISUAL FLOW DIAGRAM (Enhanced Dashboard Panels)
+    # COMBINED END-TO-END FLOW DIAGRAM
     # ----------------------------
-    st.header("🔀 End-to-End Visual Flow (Including Future App)")
+    st.header("🔀 End-to-End Data Flow & Future App")
 
     flow = graphviz.Digraph(format="png")
     flow.attr(rankdir="LR", bgcolor="white", nodesep="1.0", splines="ortho")
 
-    # Backend steps
-    flow.node("Landing", "Step 1:\n📂 Landing Zone\nFiles uploaded by fund owner", shape="folder", style="filled", fillcolor="#f2f2f2")
-    flow.node("ETL", "Step 2:\n⚙️ ETL Pipeline\n(Unpivot + Clean + Append)\n*Teams must ensure data is clean*", shape="box", style="filled", fillcolor="#ffe6cc")
-    flow.node("Master", "Step 3:\n🗄️ Consolidated Master File", shape="cylinder", style="filled", fillcolor="#d9ead3")
+    # Input files
+    flow.node("InputFiles", "29 Excel Files\n(Input)", shape="folder", style="filled", fillcolor="#f2f2f2")
 
-    # Future app as a cluster (dashboard)
-    flow.attr('node', shape='box3d', style='filled', color='black')
+    # ETL
+    flow.node("ETL", "⚙️ ETL Pipeline\n(Unpivot + Clean + Append)\n*Teams must ensure data is clean*", shape="box", style="filled", fillcolor="#ffe6cc")
+
+    # Star Schema
+    flow.node("FactsNode", "Fact Table\n(Fund_Facts)", shape="box", style="filled", fillcolor="#cfe2f3")
+    flow.node("FundDim", "Fund Dimension", shape="box", style="filled", fillcolor="#d9ead3")
+    flow.node("MetricDim", "Metric Dimension", shape="box", style="filled", fillcolor="#d9ead3")
+    flow.node("ColumnDim", "Column Dimension", shape="box", style="filled", fillcolor="#d9ead3")
+    flow.node("DateDim", "Date Dimension", shape="box", style="filled", fillcolor="#d9ead3")
+
+    # Consolidated master
+    flow.node("Consolidated", "Consolidated Master File\n(Output)", shape="cylinder", style="filled", fillcolor="#ffe6cc")
+
+    # Front-End App cluster (light background)
+    flow.attr('node', shape='box3d', style='filled')
     with flow.subgraph(name='cluster_App') as app_cluster:
-        app_cluster.attr(style='rounded,filled', fillcolor='#e8f4f8', label='Front-End App', fontsize='16')
+        app_cluster.attr(style='rounded,filled', fillcolor='#f0f4f8', label='Front-End App', fontsize='16')
         app_cluster.node("FundMetrics", "📊 Fund Metrics")
         app_cluster.node("FundComparison", "📈 Fund Comparison")
         app_cluster.node("UserCommentary", "📝 User Commentary")
@@ -103,10 +114,15 @@ def app():
         app_cluster.edge("FundMetrics", "UserCommentary")
         app_cluster.edge("FundComparison", "UserCommentary")
 
-    # Connections from backend to app
-    flow.edge("Landing", "ETL")
-    flow.edge("ETL", "Master")
-    flow.edge("Master", "FundMetrics")  # entering the dashboard
+    # Connections
+    flow.edge("InputFiles", "ETL")
+    flow.edge("ETL", "FactsNode")
+    flow.edge("FactsNode", "FundDim")
+    flow.edge("FactsNode", "MetricDim")
+    flow.edge("FactsNode", "ColumnDim")
+    flow.edge("FactsNode", "DateDim")
+    flow.edge("FactsNode", "Consolidated")
+    flow.edge("Consolidated", "FundMetrics")  # enter front-end app
 
     st.graphviz_chart(flow, use_container_width=True)
 
