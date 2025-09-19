@@ -41,14 +41,11 @@ def parse_labels(labels):
     for raw_label in labels:
         # Remove leading numbers, optional dash, and spaces
         label = re.sub(r"^\d+\-?\s*", "", raw_label.strip())
-
         if "::" not in label:
             continue
-
         key, value = label.split("::", 1)
-        key = key.strip().title()      # normalize key
+        key = key.strip().title()
         value = value.strip()
-
         if key.startswith("Team"):
             parsed["Team"] = value
         elif key.startswith("Status"):
@@ -61,7 +58,6 @@ def parse_labels(labels):
             parsed["Workstream"] = value
         elif key.startswith("Milestone"):
             parsed["Milestone"] = value
-
     return parsed
 
 def fetch_issues(base_url, project_id, token):
@@ -69,7 +65,6 @@ def fetch_issues(base_url, project_id, token):
     url = f"{base_url}/api/v4/projects/{project_id}/issues?per_page=100"
     resp = requests.get(url, headers=headers, verify=False)
     issues = safe_get_json(resp)
-
     parsed = []
     for issue in issues:
         labels = issue.get("labels", [])
@@ -84,7 +79,8 @@ def fetch_issues(base_url, project_id, token):
             "project": parsed_labels["Project"],
             "workstream": parsed_labels["Workstream"],
             "milestone": parsed_labels["Milestone"] or safe_milestone(issue),
-            "labels": labels
+            "labels": labels,
+            "web_url": issue.get("web_url", "")
         })
     return pd.DataFrame(parsed)
 
@@ -95,7 +91,7 @@ def update_issue(base_url, project_id, token, iid, payload):
     return resp.status_code == 200
 
 # ------------------------
-# Sidebar
+# Sidebar Filters
 # ------------------------
 st.sidebar.header("🔑 GitLab Connection")
 base_url = st.sidebar.text_input("Base URL", value="https://gitlab.com")
@@ -106,102 +102,132 @@ if not (base_url and project_id and token):
     st.warning("Enter Base URL, Project ID, and Access Token to continue.")
     st.stop()
 
-# Fetch issues
 df = fetch_issues(base_url, project_id, token)
 if df.empty:
-    st.warning("No issues found. Check your project ID or token.")
+    st.warning("No issues found. Check project ID or token.")
     st.stop()
+
+# Filters
+st.sidebar.header("⚙️ Filters")
+filter_sprint = st.sidebar.multiselect("Sprint", df["sprint"].dropna().unique())
+filter_team = st.sidebar.multiselect("Team", df["team"].dropna().unique())
+filter_project = st.sidebar.multiselect("Project", df["project"].dropna().unique())
+filter_milestone = st.sidebar.multiselect("Milestone", df["milestone"].dropna().unique())
+filter_status = st.sidebar.multiselect("Status", df["status"].dropna().unique())
+
+filtered_df = df.copy()
+if filter_sprint:
+    filtered_df = filtered_df[filtered_df["sprint"].isin(filter_sprint)]
+if filter_team:
+    filtered_df = filtered_df[filtered_df["team"].isin(filter_team)]
+if filter_project:
+    filtered_df = filtered_df[filtered_df["project"].isin(filter_project)]
+if filter_milestone:
+    filtered_df = filtered_df[filtered_df["milestone"].isin(filter_milestone)]
+if filter_status:
+    filtered_df = filtered_df[filtered_df["status"].isin(filter_status)]
 
 # ------------------------
 # Tabs
 # ------------------------
 tab1, tab2, tab3, tab4, tab5 = st.tabs(
-    ["📊 Overview", "🗂️ By Sprint", "🧹 Hygiene", "📝 Commentary", "✏️ Edit"]
+    ["📊 Overview", "🗂️ Kanban", "🧹 Hygiene", "📝 Commentary", "✏️ Edit"]
 )
 
 # ------------------------
-# Tab 1: Overview
+# Tab 1: Overview Dashboard
 # ------------------------
 with tab1:
-    st.subheader("Overview")
-    for col_name in ["status", "team", "sprint", "project"]:
-        st.markdown(f"### {col_name.title()}")
-        counts = df[col_name].replace("", "None").value_counts()
-        st.dataframe(counts)
-    st.download_button("⬇️ Download Overview Data", df.to_csv(index=False), "overview.csv")
+    st.subheader("Overview Dashboard")
+    cols = st.columns(4)
+    for i, field in enumerate(["status", "team", "sprint", "project"]):
+        counts = filtered_df[field].replace("", "None").value_counts()
+        with cols[i]:
+            st.metric(label=field.title(), value=len(counts))
+            for k, v in counts.items():
+                st.write(f"{k}: {v}")
+
+    st.markdown("### Full Issue Table")
+    st.dataframe(filtered_df[["team","title","description","status","project","web_url"]])
+    st.download_button("⬇️ Download Overview Data", filtered_df.to_csv(index=False), "overview.csv")
 
 # ------------------------
-# Tab 2: By Sprint (Kanban)
+# Tab 2: Kanban Board
 # ------------------------
 with tab2:
-    st.subheader("By Sprint / Kanban")
-    sprint = st.selectbox("Select Sprint", ["All"] + sorted(df["sprint"].dropna().unique().tolist()))
-    sprint_df = df if sprint == "All" else df[df["sprint"] == sprint]
-
-    statuses = sprint_df["status"].replace("", "No Status").unique().tolist()
-    cols = st.columns(len(statuses) or 1)
-    for i, status in enumerate(statuses):
+    st.subheader("Kanban Board")
+    group_by = st.radio("Swimlane by", ["Status", "Team"])
+    kanban_df = filtered_df.copy()
+    swimlanes = kanban_df[group_by.lower()].replace("", "None").unique()
+    cols = st.columns(len(swimlanes) or 1)
+    for i, lane in enumerate(swimlanes):
         with cols[i]:
-            st.markdown(f"**{status}**")
-            for _, row in sprint_df[sprint_df["status"].replace("", "No Status") == status].iterrows():
-                st.info(f"#{row['iid']} - {row['title']}")
-
-    st.download_button("⬇️ Download Sprint Data", sprint_df.to_csv(index=False), "sprint.csv")
+            st.markdown(f"**{lane}**")
+            for _, row in kanban_df[kanban_df[group_by.lower()].replace("", "None")==lane].iterrows():
+                st.info(f"#{row['iid']} - {row['title']}\nStatus: {row['status']}\nTeam: {row['team']}")
 
 # ------------------------
 # Tab 3: Hygiene
 # ------------------------
 with tab3:
     st.subheader("Hygiene Checks")
-    required_fields = ["team", "status", "sprint", "project", "title"]
-    for field in required_fields:
-        missing = df[df[field] == ""]
-        if not missing.empty:
-            st.markdown(f"### Missing {field.title()}")
-            for _, row in missing.iterrows():
-                with st.expander(f"Issue #{row['iid']} - {row['title']}"):
-                    new_val = st.text_input(f"Update {field}", key=f"fix_{field}_{row['iid']}")
-                    if st.button("Apply Fix", key=f"btn_{field}_{row['iid']}"):
-                        payload = {}
-                        if field in ["title", "description"]:
-                            payload[field] = new_val
-                        else:
-                            # update label
-                            labels = row["labels"]
-                            # Remove any existing label of this field
-                            labels = [lbl for lbl in labels if not re.match(rf"\d*-?\s*{field}.*::", lbl, re.I)]
-                            labels.append(f"{field.title()}::{new_val}")
-                            payload["labels"] = labels
-                        success = update_issue(base_url, project_id, token, row["iid"], payload)
-                        if success:
-                            st.success("Updated!")
-                        else:
-                            st.error("Failed to update")
+    fields = ["team","status","sprint","project","title"]
+    cols = st.columns(len(fields))
+    for i, f in enumerate(fields):
+        with cols[i]:
+            missing_count = len(filtered_df[filtered_df[f]==""])
+            if st.button(f"{f.title()} Missing: {missing_count}", key=f"btn_{f}"):
+                missing = filtered_df[filtered_df[f]==""] 
+                for _, row in missing.iterrows():
+                    with st.expander(f"Issue #{row['iid']} - {row['title']}"):
+                        new_val = st.text_input(f"Update {f}", key=f"fix_{f}_{row['iid']}")
+                        if st.button("Apply Fix", key=f"btn_fix_{f}_{row['iid']}"):
+                            payload = {}
+                            if f in ["title","description"]:
+                                payload[f] = new_val
+                            else:
+                                labels = row["labels"]
+                                labels = [lbl for lbl in labels if not re.match(rf"\d*-?\s*{f}.*::", lbl, re.I)]
+                                labels.append(f"{f.title()}::{new_val}")
+                                payload["labels"] = labels
+                            success = update_issue(base_url, project_id, token, row["iid"], payload)
+                            if success:
+                                st.success("Updated!")
+                            else:
+                                st.error("Failed to update")
 
 # ------------------------
 # Tab 4: Commentary
 # ------------------------
 with tab4:
     st.subheader("Sprint Commentary")
-    commentary_file = "commentary.json"
-    sprints = df["sprint"].dropna().unique().tolist()
+    sprints = filtered_df["sprint"].dropna().unique()
     sprint_sel = st.selectbox("Select Sprint", sprints)
-    notes = st.text_area("Enter Commentary")
+    scope = st.text_area("Scope")
+    key_dates = st.text_area("Key Dates")
+    achievements = st.text_area("Achievements")
+    next_steps = st.text_area("Next Steps")
+    challenges = st.text_area("Challenges")
 
+    commentary_file = "commentary.json"
     if st.button("💾 Save Commentary"):
-        entry = {"sprint": sprint_sel, "notes": notes}
+        entry = {"sprint": sprint_sel,"scope":scope,"key_dates":key_dates,
+                 "achievements":achievements,"next_steps":next_steps,"challenges":challenges}
         all_notes = []
         if os.path.exists(commentary_file):
-            with open(commentary_file, "r") as f:
+            with open(commentary_file,"r") as f:
                 all_notes = json.load(f)
         all_notes.append(entry)
-        with open(commentary_file, "w") as f:
-            json.dump(all_notes, f, indent=2)
-        st.success("Saved commentary")
+        with open(commentary_file,"w") as f:
+            json.dump(all_notes,f,indent=2)
+        st.success("Saved!")
 
     if os.path.exists(commentary_file):
-        with open(commentary_file, "r") as f:
+        with open(commentary_file,"r") as f:
             all_notes = json.load(f)
+        for note in all_notes:
+            st.markdown(f"### Sprint {note['sprint']}")
+            st.write(note)
         st.download_button("⬇️ Download Commentary", json.dumps(all_notes, indent=2), "commentary.json")
 
 # ------------------------
@@ -209,8 +235,8 @@ with tab4:
 # ------------------------
 with tab5:
     st.subheader("Edit Issues")
-    issue_id = st.selectbox("Select Issue", df["iid"].tolist())
-    issue_row = df[df["iid"] == issue_id].iloc[0]
+    issue_id = st.selectbox("Select Issue", filtered_df["iid"].tolist())
+    issue_row = filtered_df[filtered_df["iid"]==issue_id].iloc[0]
 
     new_title = st.text_input("Title", issue_row["title"])
     new_desc = st.text_area("Description", issue_row["description"])
@@ -230,7 +256,7 @@ with tab5:
         if new_workstream: labels.append(f"Workstream::{new_workstream}")
         if new_milestone: labels.append(f"Milestone::{new_milestone}")
 
-        payload = {"title": new_title, "description": new_desc, "labels": labels}
+        payload = {"title": new_title,"description":new_desc,"labels":labels}
         success = update_issue(base_url, project_id, token, issue_id, payload)
         if success:
             st.success("Updated!")
