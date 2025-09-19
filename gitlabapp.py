@@ -4,7 +4,7 @@ import requests
 from collections import defaultdict
 from io import BytesIO
 
-st.set_page_config(page_title="GitLab Issue Dashboard", layout="wide")
+st.set_page_config(page_title="GitLab Dashboard", layout="wide")
 
 # ---------------- Sidebar Settings ----------------
 st.sidebar.header("GitLab Connection")
@@ -51,11 +51,14 @@ def build_dataframe(issues):
             **labels
         })
     df = pd.DataFrame(rows)
-    # Ensure all expected columns exist
+    
+    # Ensure all expected columns exist and fill missing with empty string
     expected_columns = ["Team","Status","Sprint","Project","Milestone","Title","Description","WebURL","ID"]
     for col in expected_columns:
         if col not in df.columns:
             df[col] = ""
+        else:
+            df[col] = df[col].fillna("")
     return df
 
 def update_issue(issue_id, title=None, description=None, labels=None):
