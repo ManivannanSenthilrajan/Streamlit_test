@@ -38,11 +38,17 @@ def generate_mock_master_data():
 # ----------------------------
 def app():
     st.set_page_config(page_title="Fund Data ETL Simulation", page_icon="🔄", layout="wide")
-    st.title("🔄 Fund Data ETL Process & Data Model (Simulation)")
+    st.title("🔄 Fund Data ETL Process & Future App Simulation")
 
     st.markdown("""
-    Interactive demo showing how fund data flows from quarterly Excel files 
-    into a consolidated **reporting data model** and visualizes future app functionality. 
+    This demo shows the **end-to-end fund data process** from file upload, ETL, 
+    to the future app visualizations.  
+
+    **Important Notes:**
+    - This is purely a **backend process demo**. Users can see fund metrics, fund comparison, 
+      and add commentary in the front-end app.
+    - It is the **responsibility of the domain/fund owner or point of contact** to upload the files.
+    - All teams must ensure the **data is clean and accurate**; otherwise, the process will not work.
     """)
 
     # ----------------------------
@@ -74,10 +80,56 @@ def app():
         master_df = pd.DataFrame()
 
     # ----------------------------
-    # CONSOLIDATED DATA TABLE
+    # VISUAL FLOW DIAGRAM (Enhanced Dashboard Panels)
+    # ----------------------------
+    st.header("🔀 End-to-End Visual Flow (Including Future App)")
+
+    flow = graphviz.Digraph(format="png")
+    flow.attr(rankdir="LR", bgcolor="white", nodesep="1.0", splines="ortho")
+
+    # Backend steps
+    flow.node("Landing", "Step 1:\n📂 Landing Zone\nFiles uploaded by fund owner", shape="folder", style="filled", fillcolor="#f2f2f2")
+    flow.node("ETL", "Step 2:\n⚙️ ETL Pipeline\n(Unpivot + Clean + Append)\n*Teams must ensure data is clean*", shape="box", style="filled", fillcolor="#ffe6cc")
+    flow.node("Master", "Step 3:\n🗄️ Consolidated Master File", shape="cylinder", style="filled", fillcolor="#d9ead3")
+
+    # Future app as a cluster (dashboard)
+    flow.attr('node', shape='box3d', style='filled', color='black')
+    with flow.subgraph(name='cluster_App') as app_cluster:
+        app_cluster.attr(style='rounded,filled', fillcolor='#e8f4f8', label='Front-End App', fontsize='16')
+        app_cluster.node("FundMetrics", "📊 Fund Metrics")
+        app_cluster.node("FundComparison", "📈 Fund Comparison")
+        app_cluster.node("UserCommentary", "📝 User Commentary")
+        app_cluster.edge("FundMetrics", "FundComparison")
+        app_cluster.edge("FundMetrics", "UserCommentary")
+        app_cluster.edge("FundComparison", "UserCommentary")
+
+    # Connections from backend to app
+    flow.edge("Landing", "ETL")
+    flow.edge("ETL", "Master")
+    flow.edge("Master", "FundMetrics")  # entering the dashboard
+
+    st.graphviz_chart(flow, use_container_width=True)
+
+    # ----------------------------
+    # STAR SCHEMA DATA MODEL
+    # ----------------------------
+    st.header("🔗 Star Schema Data Model")
+    dot = graphviz.Digraph(format="png")
+    dot.attr(rankdir='TB', bgcolor="white", nodesep="0.6")
+    dot.node("Facts", "Fund_Facts\n(Fund_ID, Metric_ID, Column_ID, Date_ID, Value)",
+             shape="box", style="filled", fillcolor="lightblue", color="black")
+    dot.node("Fund", "Fund Dimension\n(Fund_ID, Fund_Name)", shape="box", style="filled", fillcolor="#f2f2f2")
+    dot.node("Metric", "Metric Dimension\n(Metric_ID, Metric_Name)", shape="box", style="filled", fillcolor="#f2f2f2")
+    dot.node("Column", "Column Dimension\n(Column_ID, Column_Name)", shape="box", style="filled", fillcolor="#f2f2f2")
+    dot.node("Date", "Date Dimension\n(Date_ID, Quarter, Year)", shape="box", style="filled", fillcolor="#f2f2f2")
+    dot.edges([("Facts","Fund"),("Facts","Metric"),("Facts","Column"),("Facts","Date")])
+    st.graphviz_chart(dot, use_container_width=True)
+
+    # ----------------------------
+    # CONSOLIDATED DATA TABLE (at bottom)
     # ----------------------------
     if etl_ran and not master_df.empty:
-        st.header("📊 Consolidated Data View")
+        st.header("📊 Consolidated Fund Table")
 
         # Filters
         funds = sorted(master_df["Fund_Name"].unique())
@@ -110,48 +162,6 @@ def app():
         final_df = pivot_df.reset_index()
 
         st.dataframe(final_df, use_container_width=True)
-
-    # ----------------------------
-    # VISUAL FLOW DIAGRAM (with future app after consolidation)
-    # ----------------------------
-    st.header("🔀 End-to-End Visual Flow (Including Future App)")
-    flow = graphviz.Digraph(format="png")
-    flow.attr(rankdir="LR", bgcolor="white", nodesep="1.0", splines="ortho")
-
-    # Existing steps
-    flow.node("Landing", "Step 1:\n📂 Landing Zone\n29 Excel Files", shape="folder", style="filled", fillcolor="#f2f2f2")
-    flow.node("ETL", "Step 2:\n⚙️ ETL Pipeline\n(Unpivot + Clean + Append)", shape="box", style="filled", fillcolor="#ffe6cc")
-    flow.node("Master", "Step 3:\n🗄️ Consolidated Master File", shape="cylinder", style="filled", fillcolor="#d9ead3")
-
-    # Future app steps (after consolidation)
-    flow.node("FundMetrics", "Step 4:\n📊 Fund Metrics View\nInteractive dashboards", shape="box3d", style="filled", fillcolor="#cfe2f3")
-    flow.node("FundComparison", "Step 5:\n📈 Fund Comparison View\nCompare multiple funds", shape="box3d", style="filled", fillcolor="#d9d2e9")
-    flow.node("UserCommentary", "Step 6:\n📝 User Commentary Section\nAdd notes and insights", shape="box3d", style="filled", fillcolor="#f4cccc")
-
-    # Connections
-    flow.edge("Landing", "ETL")
-    flow.edge("ETL", "Master")
-    flow.edge("Master", "FundMetrics")
-    flow.edge("FundMetrics", "FundComparison")
-    flow.edge("FundMetrics", "UserCommentary")  # commentary can branch from metrics
-    flow.edge("FundComparison", "UserCommentary")  # optional link from comparison to commentary
-
-    st.graphviz_chart(flow, use_container_width=True)
-
-    # ----------------------------
-    # STAR SCHEMA DATA MODEL
-    # ----------------------------
-    st.header("🔗 Star Schema Data Model")
-    dot = graphviz.Digraph(format="png")
-    dot.attr(rankdir='TB', bgcolor="white", nodesep="0.6")
-    dot.node("Facts", "Fund_Facts\n(Fund_ID, Metric_ID, Column_ID, Date_ID, Value)",
-             shape="box", style="filled", fillcolor="lightblue", color="black")
-    dot.node("Fund", "Fund Dimension\n(Fund_ID, Fund_Name)", shape="box", style="filled", fillcolor="#f2f2f2")
-    dot.node("Metric", "Metric Dimension\n(Metric_ID, Metric_Name)", shape="box", style="filled", fillcolor="#f2f2f2")
-    dot.node("Column", "Column Dimension\n(Column_ID, Column_Name)", shape="box", style="filled", fillcolor="#f2f2f2")
-    dot.node("Date", "Date Dimension\n(Date_ID, Quarter, Year)", shape="box", style="filled", fillcolor="#f2f2f2")
-    dot.edges([("Facts","Fund"),("Facts","Metric"),("Facts","Column"),("Facts","Date")])
-    st.graphviz_chart(dot, use_container_width=True)
 
 if __name__ == "__main__":
     app()
