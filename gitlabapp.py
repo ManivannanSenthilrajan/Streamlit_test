@@ -2,186 +2,231 @@ import streamlit as st
 import requests
 import pandas as pd
 import json
-
-# ========================
-# Helpers
-# ========================
-
-def safe_milestone(issue: dict) -> str:
-    """Extract milestone title safely."""
-    try:
-        milestone = issue.get("milestone")
-        if milestone and isinstance(milestone, dict):
-            return milestone.get("title", "")
-        return ""
-    except Exception:
-        return ""
-
-def parse_labels(labels):
-    """Parse labels into structured dict (Team, Status, Sprint, Project, Workstream, etc)."""
-    parsed = {"Team": "", "Status": "", "Sprint": "", "Project": "", "Workstream": ""}
-    for label in labels:
-        if "::" in label:
-            key, value = label.split("::", 1)
-            key = key.strip().title()  # normalize
-            value = value.strip()
-            # remove ordering numbers like "01 Project"
-            key = "".join([c for c in key if not c.isdigit()]).strip()
-            if key in parsed:
-                parsed[key] = value
-    return parsed
-
-def fetch_issues(base_url, project_id, token):
-    url = f"{base_url}/api/v4/projects/{project_id}/issues?per_page=100"
-    headers = {"PRIVATE-TOKEN": token}
-    try:
-        r = requests.get(url, headers=headers, verify=False)  # user asked verify=False
-        r.raise_for_status()
-        return r.json()
-    except Exception as e:
-        st.error(f"Error fetching issues: {e}")
-        return []
-
-def build_dataframe(issues):
-    rows = []
-    for issue in issues:
-        labels = issue.get("labels", [])
-        parsed = parse_labels(labels)
-        rows.append({
-            "IID": issue.get("iid"),
-            "Title": issue.get("title", ""),
-            "Description": issue.get("description", ""),
-            "Team": parsed["Team"],
-            "Status": parsed["Status"],
-            "Sprint": parsed["Sprint"],
-            "Project": parsed["Project"],
-            "Workstream": parsed["Workstream"],
-            "Milestone": safe_milestone(issue),
-            "Labels": ", ".join(labels)
-        })
-    return pd.DataFrame(rows)
-
-def update_issue(base_url, project_id, token, issue_iid, updates):
-    url = f"{base_url}/api/v4/projects/{project_id}/issues/{issue_iid}"
-    headers = {"PRIVATE-TOKEN": token}
-    try:
-        r = requests.put(url, headers=headers, data=updates, verify=False)
-        if r.status_code == 200:
-            st.success(f"Issue {issue_iid} updated successfully.")
-        else:
-            st.error(f"Failed to update issue {issue_iid}: {r.text}")
-    except Exception as e:
-        st.error(f"Error updating issue: {e}")
-
-# ========================
-# Streamlit UI
-# ========================
+import os
+import re
 
 st.set_page_config(page_title="GitLab Issue Dashboard", layout="wide")
 
-st.sidebar.header("🔧 Configuration")
-base_url = st.sidebar.text_input("GitLab Base URL", "https://gitlab.com")
+# ------------------------
+# Helpers
+# ------------------------
+def safe_get_json(response):
+    try:
+        if response and response.status_code == 200:
+            return response.json()
+        else:
+            return []
+    except Exception:
+        return []
+
+def safe_milestone(issue):
+    milestone = issue.get("milestone")
+    if milestone and isinstance(milestone, dict):
+        return milestone.get("title", "")
+    return ""
+
+def parse_labels(labels):
+    """Parse GitLab labels into normalized fields."""
+    parsed = {
+        "Team": "",
+        "Status": "",
+        "Sprint": "",
+        "Project": "",
+        "Workstream": "",
+        "Milestone": ""
+    }
+    for raw_label in labels:
+        if "::" not in raw_label:
+            continue
+        key, value = raw_label.split("::", 1)
+        key = re.sub(r"^\d+\s*", "", key.strip())   # remove ordering numbers
+        key = key.title()  # normalize case
+        value = value.strip()
+
+        if key.startswith("Team"):
+            parsed["Team"] = value
+        elif key.startswith("Status"):
+            parsed["Status"] = value
+        elif key.startswith("Sprint"):
+            parsed["Sprint"] = value
+        elif key.startswith("Project"):
+            parsed["Project"] = value
+        elif key.startswith("Workstream"):
+            parsed["Workstream"] = value
+        elif key.startswith("Milestone"):
+            parsed["Milestone"] = value
+    return parsed
+
+def fetch_issues(base_url, project_id, token):
+    headers = {"PRIVATE-TOKEN": token}
+    url = f"{base_url}/api/v4/projects/{project_id}/issues?per_page=100"
+    resp = requests.get(url, headers=headers, verify=False)
+    issues = safe_get_json(resp)
+
+    parsed = []
+    for issue in issues:
+        labels = issue.get("labels", [])
+        parsed_labels = parse_labels(labels)
+        parsed.append({
+            "iid": issue.get("iid"),
+            "title": issue.get("title", "Untitled"),
+            "description": issue.get("description", ""),
+            "team": parsed_labels["Team"],
+            "status": parsed_labels["Status"],
+            "sprint": parsed_labels["Sprint"],
+            "project": parsed_labels["Project"],
+            "workstream": parsed_labels["Workstream"],
+            "milestone": parsed_labels["Milestone"] or safe_milestone(issue),
+            "labels": labels
+        })
+    return pd.DataFrame(parsed)
+
+def update_issue(base_url, project_id, token, iid, payload):
+    headers = {"PRIVATE-TOKEN": token}
+    url = f"{base_url}/api/v4/projects/{project_id}/issues/{iid}"
+    resp = requests.put(url, headers=headers, json=payload, verify=False)
+    return resp.status_code == 200
+
+# ------------------------
+# Sidebar
+# ------------------------
+st.sidebar.header("🔑 GitLab Connection")
+base_url = st.sidebar.text_input("Base URL", value="https://gitlab.com")
 project_id = st.sidebar.text_input("Project ID")
 token = st.sidebar.text_input("Access Token", type="password")
 
-if project_id and token:
-    issues = fetch_issues(base_url, project_id, token)
-    if issues:
-        df = build_dataframe(issues)
+if not (base_url and project_id and token):
+    st.warning("Enter Base URL, Project ID, and Access Token to continue.")
+    st.stop()
 
-        tab_overview, tab_kanban, tab_hygiene, tab_commentary, tab_edit = st.tabs(
-            ["📊 Overview", "🗂️ By Sprint/Team/Status", "🧹 Hygiene", "📝 Commentary", "✏️ Edit"]
-        )
+# Fetch issues
+df = fetch_issues(base_url, project_id, token)
+if df.empty:
+    st.warning("No issues found. Check your project ID or token.")
+    st.stop()
 
-        # -----------------
-        # Overview Tab
-        # -----------------
-        with tab_overview:
-            st.subheader("Overview")
-            counts = df.groupby("Status").size().reset_index(name="Count")
+# ------------------------
+# Tabs
+# ------------------------
+tab1, tab2, tab3, tab4, tab5 = st.tabs(
+    ["📊 Overview", "🗂️ By Sprint", "🧹 Hygiene", "📝 Commentary", "✏️ Edit"]
+)
+
+# ------------------------
+# Tab 1: Overview
+# ------------------------
+with tab1:
+    st.subheader("Overview")
+    cols = st.columns(4)
+    for i, col in enumerate(["status", "team", "sprint", "project"]):
+        counts = df[col].fillna("None").value_counts()
+        with cols[i]:
+            st.metric(label=col.title(), value=len(counts))
             st.dataframe(counts)
-            st.download_button("⬇️ Download Overview", counts.to_csv(index=False), "overview.csv")
 
-        # -----------------
-        # Kanban Tab
-        # -----------------
-        with tab_kanban:
-            st.subheader("By Sprint → Team → Status")
-            sprint = st.selectbox("Select Sprint", ["All"] + sorted(df["Sprint"].dropna().unique().tolist()))
-            subset = df if sprint == "All" else df[df["Sprint"] == sprint]
+    st.download_button("⬇️ Download Overview Data", df.to_csv(index=False), "overview.csv")
 
-            if not subset.empty:
-                for team in subset["Team"].unique():
-                    st.markdown(f"### Team {team or 'Unassigned'}")
-                    team_data = subset[subset["Team"] == team]
-                    for status in team_data["Status"].unique():
-                        st.markdown(f"**{status or 'No Status'}**")
-                        for _, row in team_data[team_data["Status"] == status].iterrows():
-                            st.write(f"🔹 {row['IID']} - {row['Title']}")
+# ------------------------
+# Tab 2: By Sprint (Kanban)
+# ------------------------
+with tab2:
+    st.subheader("By Sprint / Kanban")
+    sprint = st.selectbox("Select Sprint", ["All"] + sorted(df["sprint"].dropna().unique().tolist()))
+    sprint_df = df if sprint == "All" else df[df["sprint"] == sprint]
 
-        # -----------------
-        # Hygiene Tab
-        # -----------------
-        with tab_hygiene:
-            st.subheader("Hygiene Checks")
-            hygiene_issues = []
-            for _, row in df.iterrows():
-                if not row["Team"]:
-                    hygiene_issues.append((row["IID"], "Missing Team"))
-                if not row["Status"]:
-                    hygiene_issues.append((row["IID"], "Missing Status"))
-                if not row["Sprint"]:
-                    hygiene_issues.append((row["IID"], "Missing Sprint"))
-                if not row["Project"]:
-                    hygiene_issues.append((row["IID"], "Missing Project"))
+    statuses = sprint_df["status"].dropna().unique().tolist()
+    cols = st.columns(len(statuses) or 1)
+    for i, status in enumerate(statuses):
+        with cols[i]:
+            st.markdown(f"**{status}**")
+            for _, row in sprint_df[sprint_df["status"] == status].iterrows():
+                st.info(f"#{row['iid']} - {row['title']}")
 
-            if hygiene_issues:
-                for iid, problem in hygiene_issues:
-                    st.write(f"Issue {iid}: {problem}")
-                    if st.button(f"Fix {problem} for {iid}", key=f"fix_{iid}_{problem}"):
-                        new_value = st.text_input(f"Enter value for {problem}", key=f"val_{iid}_{problem}")
-                        if new_value:
-                            label_key = problem.split()[-1]
-                            update_issue(base_url, project_id, token, iid, {"labels": f"{label_key}::{new_value}"})
-            else:
-                st.success("No hygiene issues found 🎉")
+    st.download_button("⬇️ Download Sprint Data", sprint_df.to_csv(index=False), "sprint.csv")
 
-        # -----------------
-        # Commentary Tab
-        # -----------------
-        with tab_commentary:
-            st.subheader("Sprint Commentary")
-            sprint = st.selectbox("Select Sprint", sorted(df["Sprint"].dropna().unique().tolist()))
-            commentary = st.text_area("Enter commentary")
-            if st.button("💾 Save Commentary"):
-                try:
-                    data = {"sprint": sprint, "commentary": commentary}
-                    with open("commentary.json", "a") as f:
-                        f.write(json.dumps(data) + "\n")
-                    st.success("Saved locally to commentary.json")
-                except Exception as e:
-                    st.error(f"Error saving commentary: {e}")
+# ------------------------
+# Tab 3: Hygiene
+# ------------------------
+with tab3:
+    st.subheader("Hygiene Checks")
+    required_fields = ["team", "status", "sprint", "project", "title"]
+    for field in required_fields:
+        missing = df[df[field] == ""]
+        if not missing.empty:
+            st.markdown(f"### Missing {field.title()}")
+            for _, row in missing.iterrows():
+                with st.expander(f"Issue #{row['iid']} - {row['title']}"):
+                    new_val = st.text_input(f"Update {field}", key=f"fix_{field}_{row['iid']}")
+                    if st.button("Apply Fix", key=f"btn_{field}_{row['iid']}"):
+                        payload = {}
+                        if field in ["title", "description"]:
+                            payload[field] = new_val
+                        else:
+                            # update label
+                            labels = row["labels"]
+                            labels = [lbl for lbl in labels if not lbl.lower().startswith(field)]
+                            labels.append(f"{field.title()}::{new_val}")
+                            payload["labels"] = labels
+                        success = update_issue(base_url, project_id, token, row["iid"], payload)
+                        if success:
+                            st.success("Updated!")
+                        else:
+                            st.error("Failed to update")
 
-        # -----------------
-        # Edit Tab
-        # -----------------
-        with tab_edit:
-            st.subheader("Edit Issues")
-            iid = st.selectbox("Select Issue", df["IID"].tolist())
-            issue_row = df[df["IID"] == iid].iloc[0]
+# ------------------------
+# Tab 4: Commentary
+# ------------------------
+with tab4:
+    st.subheader("Sprint Commentary")
+    commentary_file = "commentary.json"
+    sprint = st.selectbox("Select Sprint", sorted(df["sprint"].dropna().unique().tolist()))
+    notes = st.text_area("Enter Commentary")
 
-            new_title = st.text_input("Title", issue_row["Title"])
-            new_desc = st.text_area("Description", issue_row["Description"])
-            new_team = st.text_input("Team", issue_row["Team"])
-            new_status = st.text_input("Status", issue_row["Status"])
-            new_sprint = st.text_input("Sprint", issue_row["Sprint"])
-            new_project = st.text_input("Project", issue_row["Project"])
+    if st.button("💾 Save Commentary"):
+        entry = {"sprint": sprint, "notes": notes}
+        all_notes = []
+        if os.path.exists(commentary_file):
+            with open(commentary_file, "r") as f:
+                all_notes = json.load(f)
+        all_notes.append(entry)
+        with open(commentary_file, "w") as f:
+            json.dump(all_notes, f, indent=2)
+        st.success("Saved commentary")
 
-            if st.button("Update Issue"):
-                labels = []
-                if new_team: labels.append(f"Team::{new_team}")
-                if new_status: labels.append(f"Status::{new_status}")
-                if new_sprint: labels.append(f"Sprint::{new_sprint}")
-                if new_project: labels.append(f"Project::{new_project}")
-                updates = {"title": new_title, "description": new_desc, "labels": labels}
-                update_issue(base_url, project_id, token, iid, updates)
+    if os.path.exists(commentary_file):
+        with open(commentary_file, "r") as f:
+            all_notes = json.load(f)
+        st.download_button("⬇️ Download Commentary", json.dumps(all_notes, indent=2), "commentary.json")
+
+# ------------------------
+# Tab 5: Edit
+# ------------------------
+with tab5:
+    st.subheader("Edit Issues")
+    issue_id = st.selectbox("Select Issue", df["iid"].tolist())
+    issue_row = df[df["iid"] == issue_id].iloc[0]
+
+    new_title = st.text_input("Title", issue_row["title"])
+    new_desc = st.text_area("Description", issue_row["description"])
+    new_team = st.text_input("Team", issue_row["team"])
+    new_status = st.text_input("Status", issue_row["status"])
+    new_sprint = st.text_input("Sprint", issue_row["sprint"])
+    new_project = st.text_input("Project", issue_row["project"])
+    new_workstream = st.text_input("Workstream", issue_row["workstream"])
+    new_milestone = st.text_input("Milestone", issue_row["milestone"])
+
+    if st.button("✅ Save Changes"):
+        labels = []
+        if new_team: labels.append(f"Team::{new_team}")
+        if new_status: labels.append(f"Status::{new_status}")
+        if new_sprint: labels.append(f"Sprint::{new_sprint}")
+        if new_project: labels.append(f"Project::{new_project}")
+        if new_workstream: labels.append(f"Workstream::{new_workstream}")
+        if new_milestone: labels.append(f"Milestone::{new_milestone}")
+
+        payload = {"title": new_title, "description": new_desc, "labels": labels}
+        success = update_issue(base_url, project_id, token, issue_id, payload)
+        if success:
+            st.success("Updated!")
+        else:
+            st.error("Failed to update")
