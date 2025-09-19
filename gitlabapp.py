@@ -1,6 +1,6 @@
 import streamlit as st
-import requests
 import pandas as pd
+import requests
 import json
 import os
 from io import BytesIO
@@ -16,7 +16,7 @@ st.set_page_config(page_title="GitLab Issues Dashboard", layout="wide")
 st.markdown("""
 <style>
 body, div, p, span, input, textarea, select, button {
-    font-family: "Frutiger45Light", "Segoe UI", "Helvetica Neue", Arial, sans-serif !important;
+    font-family: "Frutiger45Light", "Segoe UI", Arial, sans-serif !important;
 }
 .card {
     padding: 10px;
@@ -68,9 +68,9 @@ def normalize_labels(labels):
     result = {}
     for lbl in labels:
         if "::" in lbl:
-            parts = lbl.split("::", 1)
-            key = parts[0].strip().lower()
-            val = parts[1].strip()
+            key, val = lbl.split("::", 1)
+            key = key.strip().lower()
+            val = val.strip()
             result[key] = val
     return result
 
@@ -97,11 +97,12 @@ def issues_to_df(issues):
         }
         rows.append(row)
     df = pd.DataFrame(rows)
-    # Strip spaces from label columns
+    # Ensure columns exist and normalize
     for col in ["sprint", "team", "status", "project", "workstream"]:
-        if col in df.columns:
-            df[col] = df[col].astype(str).str.strip()
-            df[col] = df[col].replace("nan", None)
+        if col not in df.columns:
+            df[col] = None
+        df[col] = df[col].astype(str).str.strip()
+        df[col] = df[col].replace("nan", None)
     return df
 
 def download_excel(df, filename="data.xlsx"):
@@ -128,7 +129,7 @@ def update_issue(base_url, project_id, token, iid, body, verify_ssl=True):
     return resp
 
 def status_class(status):
-    if not status:
+    if not status or status.lower() in ["none", "nan"]:
         return "status-todo"
     s = status.lower()
     if "progress" in s:
@@ -159,31 +160,35 @@ if project_id and access_token:
         st.error(f"SSL Error: {e}. You may need to disable SSL verification for self-signed certs.")
     if issues:
         df = issues_to_df(issues)
-        # Sidebar Filters
-        st.sidebar.header("📊 Filters")
-        sprint_filter = st.sidebar.multiselect("Sprint", sorted(df["sprint"].dropna().unique()))
-        team_filter = st.sidebar.multiselect("Team", sorted(df["team"].dropna().unique()))
-        status_filter = st.sidebar.multiselect("Status", sorted(df["status"].dropna().unique()))
-        filtered_df = df.copy()
-        if sprint_filter:
-            filtered_df = filtered_df[filtered_df["sprint"].isin(sprint_filter)]
-        if team_filter:
-            filtered_df = filtered_df[filtered_df["team"].isin(team_filter)]
-        if status_filter:
-            filtered_df = filtered_df[filtered_df["status"].isin(status_filter)]
     else:
         st.warning("No issues found or unable to fetch.")
-        filtered_df = pd.DataFrame()
+else:
+    st.info("Enter Project ID and Access Token in the sidebar to fetch issues.")
+
+# ------------------------
+# Sidebar Filters
+# ------------------------
+if not df.empty:
+    st.sidebar.header("📊 Filters")
+    sprint_filter = st.sidebar.multiselect("Sprint", sorted(df["sprint"].dropna().unique()))
+    team_filter = st.sidebar.multiselect("Team", sorted(df["team"].dropna().unique()))
+    status_filter = st.sidebar.multiselect("Status", sorted(df["status"].dropna().unique()))
+    filtered_df = df.copy()
+    if sprint_filter:
+        filtered_df = filtered_df[filtered_df["sprint"].isin(sprint_filter)]
+    if team_filter:
+        filtered_df = filtered_df[filtered_df["team"].isin(team_filter)]
+    if status_filter:
+        filtered_df = filtered_df[filtered_df["status"].isin(status_filter)]
 else:
     filtered_df = pd.DataFrame()
-    st.info("Enter Project ID and Access Token in the sidebar to fetch issues.")
 
 # ------------------------
 # Tabs
 # ------------------------
 tab1, tab2, tab3, tab4 = st.tabs(["Overview", "By Sprint–Team–Status", "Hygiene", "Commentary"])
 
-# --- Overview ---
+# --- Overview Tab ---
 with tab1:
     st.subheader("📊 Overview")
     if not filtered_df.empty:
@@ -193,22 +198,23 @@ with tab1:
     else:
         st.info("No issues to display in Overview.")
 
-# --- Kanban Tab ---
+# --- Kanban Tab (Dynamic Status Columns) ---
 with tab2:
     st.subheader("🗂️ Sprint → Team → Status (Kanban)")
     if not filtered_df.empty:
-        sprints = filtered_df["sprint"].dropna().unique()
+        sprints = filtered_df["sprint"].fillna("No Sprint").unique()
         for sprint in sprints:
             st.markdown(f"### Sprint: {sprint}")
-            sprint_df = filtered_df[filtered_df["sprint"] == sprint]
-            teams = sprint_df["team"].dropna().unique()
+            sprint_df = filtered_df[filtered_df["sprint"].fillna("No Sprint") == sprint]
+            teams = sprint_df["team"].fillna("No Team").unique()
             for team in teams:
                 st.markdown(f"**Team: {team}**")
-                team_df = sprint_df[sprint_df["team"] == team]
-                statuses = ["To Do", "In Progress", "Blocked", "Done"]
+                team_df = sprint_df[sprint_df["team"].fillna("No Team") == team]
+                
+                statuses = team_df["status"].fillna("No Status").unique()
                 st.markdown('<div class="kanban-board">', unsafe_allow_html=True)
                 for status in statuses:
-                    col_df = team_df[team_df["status"] == status]
+                    col_df = team_df[team_df["status"].fillna("No Status") == status]
                     st.markdown(f'<div class="kanban-col"><h4>{status}</h4>', unsafe_allow_html=True)
                     for _, row in col_df.iterrows():
                         css_class = status_class(row["status"])
@@ -243,39 +249,17 @@ with tab3:
                         new_labels = current_labels.copy()
                         body = {}
 
-                        # Status Fix
                         if "Status" in check:
                             status_val = st.selectbox("Set Status", ["To Do", "In Progress", "Blocked", "Done"],
                                                       key=f"status_{check}_{row['iid']}")
                             new_labels = [l for l in new_labels if not l.lower().startswith("status::")]
                             new_labels.append(f"Status::{status_val}")
 
-                        # Team Fix
                         if "Team" in check:
                             team_val = st.text_input("Set Team", key=f"team_{check}_{row['iid']}")
                             if team_val:
                                 new_labels = [l for l in new_labels if not l.lower().startswith("team::")]
                                 new_labels.append(f"Team::{team_val}")
-
-                        # Project Fix
-                        if "Project" in check:
-                            proj_val = st.text_input("Set Project", key=f"proj_{check}_{row['iid']}")
-                            if proj_val:
-                                new_labels = [l for l in new_labels if not l.lower().startswith("project::")]
-                                new_labels.append(f"Project::{proj_val}")
-
-                        # Sprint Fix
-                        if "Sprint" in check:
-                            sprint_val = st.text_input("Set Sprint", key=f"sprint_{check}_{row['iid']}")
-                            if sprint_val:
-                                new_labels = [l for l in new_labels if not l.lower().startswith("sprint::")]
-                                new_labels.append(f"Sprint::{sprint_val}")
-
-                        # Title Fix
-                        if "Title" in check:
-                            new_title = st.text_input("Set Title", value=row["title"], key=f"title_{check}_{row['iid']}")
-                            if new_title and new_title != row["title"]:
-                                body["title"] = new_title
 
                         if st.button("Apply Fix", key=f"fix_{check}_{row['iid']}"):
                             body["labels"] = new_labels
