@@ -65,12 +65,17 @@ def fetch_issues(base_url, project_id, token, verify_ssl=True):
     return issues
 
 def normalize_labels(labels):
+    """
+    Convert GitLab labels to a dict {key: value}, normalizing spaces and cases.
+    Handles labels like:
+        'Team::A', 'Team :: B', 'Status :: Done', 'Sprint::Q1::Phase1'
+    """
     result = {}
     for lbl in labels:
         if "::" in lbl:
-            key, val = lbl.split("::", 1)
-            key = key.strip().lower()
-            val = val.strip()
+            parts = lbl.split("::", 1)
+            key = parts[0].strip().lower()
+            val = parts[1].strip()
             result[key] = val
     return result
 
@@ -94,8 +99,7 @@ def issues_to_df(issues):
         }
         rows.append(row)
     df = pd.DataFrame(rows)
-    # Fill missing values with None
-    for col in ["team", "status", "sprint", "project", "workstream", "milestone"]:
+    for col in ["team","status","sprint","project","workstream","milestone"]:
         if col not in df.columns:
             df[col] = None
         df[col] = df[col].replace({None: None, "": None})
@@ -194,7 +198,7 @@ with tab1:
     else:
         st.info("No issues to display in Overview.")
 
-# --- Kanban Tab (Dynamic Status Columns) ---
+# --- Kanban Tab ---
 with tab2:
     st.subheader("🗂️ Sprint → Team → Status (Kanban)")
     if not filtered_df.empty:
@@ -206,7 +210,6 @@ with tab2:
             for team in teams:
                 st.markdown(f"**Team: {team}**")
                 team_df = sprint_df[sprint_df["team"].fillna("No Team") == team]
-                
                 statuses = team_df["status"].fillna("No Status").unique()
                 st.markdown('<div class="kanban-board">', unsafe_allow_html=True)
                 for status in statuses:
@@ -245,7 +248,6 @@ with tab3:
                         current_labels = row["labels"]
                         new_labels = current_labels.copy()
                         body = {}
-                        
                         if "Status" in check:
                             status_val = st.selectbox("Set Status",
                                                       ["To Do","In Progress","Blocked","Done"],
