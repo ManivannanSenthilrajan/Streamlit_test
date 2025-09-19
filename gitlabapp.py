@@ -25,20 +25,22 @@ def fetch_issues():
     if not project_id or not private_token:
         return []
     url = f"{base_url}/api/v4/projects/{project_id}/issues?per_page=100"
-    resp = requests.get(url, headers=headers, verify=False)
-    if resp.status_code != 200:
-        st.error(f"Failed to fetch issues: {resp.text}")
+    try:
+        resp = requests.get(url, headers=headers, verify=False)
+        resp.raise_for_status()
+        return resp.json()
+    except Exception as e:
+        st.error(f"Failed to fetch issues: {e}")
         return []
-    return resp.json()
 
 def parse_labels(issue):
     parsed = defaultdict(list)
     for raw in issue.get("labels", []):
         if "::" in raw:
             key, val = raw.split("::", 1)
-            key = key.strip().split("-", 1)[-1].capitalize()  # removes prefix like "01-"
+            key = key.strip().split("-", 1)[-1].capitalize()
             val = val.strip()
-            parsed[key].append(val)   # collects multiple values
+            parsed[key].append(val)
     return {k: ", ".join(v) for k, v in parsed.items()}
 
 def build_dataframe(issues):
@@ -46,11 +48,11 @@ def build_dataframe(issues):
     for issue in issues:
         labels = parse_labels(issue)
         rows.append({
-            "ID": issue.get("iid"),
-            "Title": issue.get("title"),
-            "Description": issue.get("description"),
-            "WebURL": issue.get("web_url"),
-            "Milestone": issue.get("milestone", {}).get("title") if issue.get("milestone") else "",
+            "ID": issue.get("iid", ""),
+            "Title": issue.get("title", ""),
+            "Description": issue.get("description", ""),
+            "WebURL": issue.get("web_url", ""),
+            "Milestone": issue.get("milestone", {}).get("title", ""),
             **labels
         })
     return pd.DataFrame(rows)
@@ -61,11 +63,12 @@ def update_issue(issue_id, title=None, description=None, labels=None):
     if title: payload["title"] = title
     if description: payload["description"] = description
     if labels is not None: payload["labels"] = labels
-    resp = requests.put(url, headers=headers, json=payload, verify=False)
-    if resp.status_code == 200:
+    try:
+        resp = requests.put(url, headers=headers, json=payload, verify=False)
+        resp.raise_for_status()
         st.success(f"Issue {issue_id} updated")
-    else:
-        st.error(f"Failed to update {issue_id}: {resp.text}")
+    except Exception as e:
+        st.error(f"Failed to update {issue_id}: {e}")
 
 def download_commentary(scope, dates, achievements, next_steps, challenges, fmt="docx"):
     if fmt == "docx":
@@ -132,8 +135,7 @@ with tab_overview:
     }
     for i, (label, val) in enumerate(metrics.items()):
         with cols[i % 4]:
-            if st.button(f"{label}: {val}"):
-                st.dataframe(df)
+            st.metric(label, val)
     st.subheader("📋 Full Issue List")
     st.dataframe(df[["Team","Title","Description","Status","Project","WebURL"]])
 
