@@ -32,6 +32,7 @@ def parse_labels(issue):
     for raw in issue.get("labels", []):
         if "::" in raw:
             key, val = raw.split("::", 1)
+            # Remove numbers, strip spaces, capitalize
             key = key.strip().split("-",1)[-1].capitalize()
             val = val.strip()
             parsed[key].append(val)
@@ -49,7 +50,13 @@ def build_dataframe(issues):
             "Milestone": issue.get("milestone", {}).get("title", "") if issue.get("milestone") else "",
             **labels
         })
-    return pd.DataFrame(rows)
+    df = pd.DataFrame(rows)
+    # Ensure all expected columns exist
+    expected_columns = ["Team","Status","Sprint","Project","Milestone","Title","Description","WebURL","ID"]
+    for col in expected_columns:
+        if col not in df.columns:
+            df[col] = ""
+    return df
 
 def update_issue(issue_id, title=None, description=None, labels=None):
     url = f"{base_url}/api/v4/projects/{project_id}/issues/{issue_id}"
@@ -86,11 +93,11 @@ df = build_dataframe(issues)
 # ---------------- Sidebar Filters ----------------
 with st.sidebar:
     st.header("🔍 Filters")
-    filter_team = st.multiselect("Team", sorted(df["Team"].dropna().unique()) if "Team" in df else [])
-    filter_status = st.multiselect("Status", sorted(df["Status"].dropna().unique()) if "Status" in df else [])
-    filter_sprint = st.multiselect("Sprint", sorted(df["Sprint"].dropna().unique()) if "Sprint" in df else [])
-    filter_project = st.multiselect("Project", sorted(df["Project"].dropna().unique()) if "Project" in df else [])
-    filter_milestone = st.multiselect("Milestone", sorted(df["Milestone"].dropna().unique()) if "Milestone" in df else [])
+    filter_team = st.multiselect("Team", sorted(df["Team"].dropna().unique()))
+    filter_status = st.multiselect("Status", sorted(df["Status"].dropna().unique()))
+    filter_sprint = st.multiselect("Sprint", sorted(df["Sprint"].dropna().unique()))
+    filter_project = st.multiselect("Project", sorted(df["Project"].dropna().unique()))
+    filter_milestone = st.multiselect("Milestone", sorted(df["Milestone"].dropna().unique()))
 
     if filter_team: df = df[df["Team"].isin(filter_team)]
     if filter_status: df = df[df["Status"].isin(filter_status)]
@@ -109,9 +116,9 @@ with tab_overview:
     cols = st.columns(4)
     metrics = {
         "Total Issues": len(df),
-        "Teams": df["Team"].nunique() if "Team" in df else 0,
-        "Sprints": df["Sprint"].nunique() if "Sprint" in df else 0,
-        "Projects": df["Project"].nunique() if "Project" in df else 0
+        "Teams": df["Team"].nunique(),
+        "Sprints": df["Sprint"].nunique(),
+        "Projects": df["Project"].nunique()
     }
     for i,(label,val) in enumerate(metrics.items()):
         with cols[i % 4]:
@@ -123,51 +130,44 @@ with tab_overview:
 # ---------------- Kanban ----------------
 with tab_kanban:
     st.subheader("🗂 Kanban Board")
-    if "Team" not in df or "Status" not in df:
-        st.warning("No Team/Status data found.")
-    else:
-        teams = sorted(df["Team"].dropna().unique())
-        statuses = sorted(df["Status"].dropna().unique())
-        for team in teams:
-            st.markdown(f"### 👥 {team}")
-            for status in statuses:
-                st.markdown(f"**{status}**")
-                subset = df[(df["Team"]==team) & (df["Status"]==status)]
-                for _,row in subset.iterrows():
-                    color="#a0e7a0" if status.lower()=="done" else "#f0f2f6"
-                    st.markdown(f"<div style='padding:10px;margin:5px;border-radius:8px;background:{color};'>"
-                                f"<b>{row['Title']}</b><br>"
-                                f"<small>{row['Description'][:50]}...</small><br>"
-                                f"<a href='{row['WebURL']}' target='_blank'>🔗 Open</a></div>", unsafe_allow_html=True)
+    teams = sorted(df["Team"].dropna().unique())
+    statuses = sorted(df["Status"].dropna().unique())
+    for team in teams:
+        st.markdown(f"### 👥 {team}")
+        for status in statuses:
+            st.markdown(f"**{status}**")
+            subset = df[(df["Team"]==team) & (df["Status"]==status)]
+            for _,row in subset.iterrows():
+                color="#a0e7a0" if status.lower()=="done" else "#f0f2f6"
+                st.markdown(f"<div style='padding:10px;margin:5px;border-radius:8px;background:{color};'>"
+                            f"<b>{row['Title']}</b><br>"
+                            f"<small>{row['Description'][:50]}...</small><br>"
+                            f"<a href='{row['WebURL']}' target='_blank'>🔗 Open</a></div>", unsafe_allow_html=True)
 
 # ---------------- By Sprint ----------------
 with tab_sprint:
     st.subheader("📅 Issues by Sprint")
-    if "Sprint" not in df:
-        st.warning("No Sprint data found.")
-    else:
-        all_sprints = sorted(set(sum([s.split(", ") for s in df["Sprint"].dropna()], [])))
-        for sprint in all_sprints:
-            st.markdown(f"### 🏁 {sprint}")
-            subset = df[df["Sprint"].fillna("").str.contains(sprint)]
-            st.dataframe(subset.sort_values("Team"))
+    all_sprints = sorted(set(sum([s.split(", ") for s in df["Sprint"].dropna()], [])))
+    for sprint in all_sprints:
+        st.markdown(f"### 🏁 {sprint}")
+        subset = df[df["Sprint"].fillna("").str.contains(sprint)]
+        st.dataframe(subset.sort_values("Team"))
 
 # ---------------- Hygiene ----------------
 with tab_hygiene:
     st.subheader("🧹 Hygiene Check")
     missing_fields = ["Team","Status","Sprint","Project","Milestone","Title"]
     for field in missing_fields:
-        if field in df:
-            missing = df[df[field].isna() | (df[field]=="")]
-            if not missing.empty:
-                st.markdown(f"**{field} Missing ({len(missing)})**")
-                for _, row in missing.iterrows():
-                    with st.expander(f"Issue {row['ID']}: {row['Title']}"):
-                        new_val = st.text_input(f"Set {field}", key=f"fix_{field}_{row['ID']}")
-                        if st.button(f"Fix {field} for {row['ID']}", key=f"btn_fix_{field}_{row['ID']}"):
-                            labels = row.get("Labels","").split(", ") if "Labels" in row else []
-                            labels.append(f"{field}::{new_val}")
-                            update_issue(row["ID"], labels=",".join(labels))
+        missing = df[df[field].isna() | (df[field]=="")]
+        if not missing.empty:
+            st.markdown(f"**{field} Missing ({len(missing)})**")
+            for _, row in missing.iterrows():
+                with st.expander(f"Issue {row['ID']}: {row['Title']}"):
+                    new_val = st.text_input(f"Set {field}", key=f"fix_{field}_{row['ID']}")
+                    if st.button(f"Fix {field} for {row['ID']}", key=f"btn_fix_{field}_{row['ID']}"):
+                        labels = row.get("Labels","").split(", ") if "Labels" in row else []
+                        labels.append(f"{field}::{new_val}")
+                        update_issue(row["ID"], labels=",".join(labels))
 
 # ---------------- Edit Issues ----------------
 with tab_edit:
