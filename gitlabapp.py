@@ -14,8 +14,7 @@ def safe_get_json(response):
     try:
         if response and response.status_code == 200:
             return response.json()
-        else:
-            return []
+        return []
     except Exception:
         return []
 
@@ -26,7 +25,10 @@ def safe_milestone(issue):
     return ""
 
 def parse_labels(labels):
-    """Parse GitLab labels into normalized fields."""
+    """
+    Robustly parse GitLab labels into normalized fields.
+    Handles numeric prefixes, dashes, spaces, inconsistent capitalization.
+    """
     parsed = {
         "Team": "",
         "Status": "",
@@ -35,12 +37,16 @@ def parse_labels(labels):
         "Workstream": "",
         "Milestone": ""
     }
+
     for raw_label in labels:
-        if "::" not in raw_label:
+        # Remove leading numbers, optional dash, and spaces
+        label = re.sub(r"^\d+\-?\s*", "", raw_label.strip())
+
+        if "::" not in label:
             continue
-        key, value = raw_label.split("::", 1)
-        key = re.sub(r"^\d+\s*", "", key.strip())   # remove ordering numbers
-        key = key.title()  # normalize case
+
+        key, value = label.split("::", 1)
+        key = key.strip().title()      # normalize key
         value = value.strip()
 
         if key.startswith("Team"):
@@ -55,6 +61,7 @@ def parse_labels(labels):
             parsed["Workstream"] = value
         elif key.startswith("Milestone"):
             parsed["Milestone"] = value
+
     return parsed
 
 def fetch_issues(base_url, project_id, token):
@@ -117,13 +124,10 @@ tab1, tab2, tab3, tab4, tab5 = st.tabs(
 # ------------------------
 with tab1:
     st.subheader("Overview")
-    cols = st.columns(4)
-    for i, col in enumerate(["status", "team", "sprint", "project"]):
-        counts = df[col].fillna("None").value_counts()
-        with cols[i]:
-            st.metric(label=col.title(), value=len(counts))
-            st.dataframe(counts)
-
+    for col_name in ["status", "team", "sprint", "project"]:
+        st.markdown(f"### {col_name.title()}")
+        counts = df[col_name].replace("", "None").value_counts()
+        st.dataframe(counts)
     st.download_button("⬇️ Download Overview Data", df.to_csv(index=False), "overview.csv")
 
 # ------------------------
@@ -134,12 +138,12 @@ with tab2:
     sprint = st.selectbox("Select Sprint", ["All"] + sorted(df["sprint"].dropna().unique().tolist()))
     sprint_df = df if sprint == "All" else df[df["sprint"] == sprint]
 
-    statuses = sprint_df["status"].dropna().unique().tolist()
+    statuses = sprint_df["status"].replace("", "No Status").unique().tolist()
     cols = st.columns(len(statuses) or 1)
     for i, status in enumerate(statuses):
         with cols[i]:
             st.markdown(f"**{status}**")
-            for _, row in sprint_df[sprint_df["status"] == status].iterrows():
+            for _, row in sprint_df[sprint_df["status"].replace("", "No Status") == status].iterrows():
                 st.info(f"#{row['iid']} - {row['title']}")
 
     st.download_button("⬇️ Download Sprint Data", sprint_df.to_csv(index=False), "sprint.csv")
@@ -164,7 +168,8 @@ with tab3:
                         else:
                             # update label
                             labels = row["labels"]
-                            labels = [lbl for lbl in labels if not lbl.lower().startswith(field)]
+                            # Remove any existing label of this field
+                            labels = [lbl for lbl in labels if not re.match(rf"\d*-?\s*{field}.*::", lbl, re.I)]
                             labels.append(f"{field.title()}::{new_val}")
                             payload["labels"] = labels
                         success = update_issue(base_url, project_id, token, row["iid"], payload)
@@ -179,11 +184,12 @@ with tab3:
 with tab4:
     st.subheader("Sprint Commentary")
     commentary_file = "commentary.json"
-    sprint = st.selectbox("Select Sprint", sorted(df["sprint"].dropna().unique().tolist()))
+    sprints = df["sprint"].dropna().unique().tolist()
+    sprint_sel = st.selectbox("Select Sprint", sprints)
     notes = st.text_area("Enter Commentary")
 
     if st.button("💾 Save Commentary"):
-        entry = {"sprint": sprint, "notes": notes}
+        entry = {"sprint": sprint_sel, "notes": notes}
         all_notes = []
         if os.path.exists(commentary_file):
             with open(commentary_file, "r") as f:
