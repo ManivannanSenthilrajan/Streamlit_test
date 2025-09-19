@@ -5,22 +5,17 @@ from collections import defaultdict
 from docx import Document
 from io import BytesIO
 
-# -------------------
-# CONFIG
-# -------------------
 st.set_page_config(page_title="GitLab Issue Dashboard", layout="wide")
 
-# Sidebar GitLab setup
-st.sidebar.header("🔑 GitLab Settings")
-base_url = st.sidebar.text_input("Base URL", "https://gitlab.com")
+# ---------------- Sidebar Settings ----------------
+st.sidebar.header("GitLab Connection")
+base_url = st.sidebar.text_input("GitLab Base URL", "https://gitlab.com")
 project_id = st.sidebar.text_input("Project ID", "")
 private_token = st.sidebar.text_input("Private Token", type="password")
 
 headers = {"PRIVATE-TOKEN": private_token}
 
-# -------------------
-# HELPER FUNCTIONS
-# -------------------
+# ---------------- Helper Functions ----------------
 def fetch_issues():
     if not project_id or not private_token:
         return []
@@ -38,7 +33,7 @@ def parse_labels(issue):
     for raw in issue.get("labels", []):
         if "::" in raw:
             key, val = raw.split("::", 1)
-            key = key.strip().split("-", 1)[-1].capitalize()
+            key = key.strip().split("-",1)[-1].capitalize()
             val = val.strip()
             parsed[key].append(val)
     return {k: ", ".join(v) for k, v in parsed.items()}
@@ -91,11 +86,8 @@ def download_commentary(scope, dates, achievements, next_steps, challenges, fmt=
         )
         return BytesIO(text.encode()), "txt"
 
-# -------------------
-# MAIN APP
-# -------------------
+# ---------------- Main App ----------------
 st.title("📊 GitLab Issue Dashboard")
-
 issues = fetch_issues()
 if not issues:
     st.warning("No issues loaded yet. Enter settings in the sidebar.")
@@ -103,90 +95,83 @@ if not issues:
 
 df = build_dataframe(issues)
 
-# Sidebar filters
+# ---------------- Sidebar Filters ----------------
 with st.sidebar:
     st.header("🔍 Filters")
-    filter_team = st.multiselect("Filter by Team", sorted(df["Team"].dropna().unique()) if "Team" in df else [])
-    filter_status = st.multiselect("Filter by Status", sorted(df["Status"].dropna().unique()) if "Status" in df else [])
-    filter_sprint = st.multiselect("Filter by Sprint", sorted(df["Sprint"].dropna().unique()) if "Sprint" in df else [])
-    filter_project = st.multiselect("Filter by Project", sorted(df["Project"].dropna().unique()) if "Project" in df else [])
+    filter_team = st.multiselect("Team", sorted(df["Team"].dropna().unique()) if "Team" in df else [])
+    filter_status = st.multiselect("Status", sorted(df["Status"].dropna().unique()) if "Status" in df else [])
+    filter_sprint = st.multiselect("Sprint", sorted(df["Sprint"].dropna().unique()) if "Sprint" in df else [])
+    filter_project = st.multiselect("Project", sorted(df["Project"].dropna().unique()) if "Project" in df else [])
+    filter_milestone = st.multiselect("Milestone", sorted(df["Milestone"].dropna().unique()) if "Milestone" in df else [])
 
     if filter_team: df = df[df["Team"].isin(filter_team)]
     if filter_status: df = df[df["Status"].isin(filter_status)]
     if filter_sprint: df = df[df["Sprint"].isin(filter_sprint)]
     if filter_project: df = df[df["Project"].isin(filter_project)]
+    if filter_milestone: df = df[df["Milestone"].isin(filter_milestone)]
 
-# Tabs
+# ---------------- Tabs ----------------
 tab_overview, tab_kanban, tab_sprint, tab_hygiene, tab_edit, tab_commentary = st.tabs(
-    ["Overview", "Kanban", "By Sprint", "Hygiene", "Edit Issues", "Commentary"]
+    ["Overview","Kanban","By Sprint","Hygiene","Edit Issues","Commentary"]
 )
 
-# -------------------
-# OVERVIEW
-# -------------------
+# ---------------- Overview ----------------
 with tab_overview:
     st.subheader("📌 Quick Metrics")
     cols = st.columns(4)
     metrics = {
         "Total Issues": len(df),
-        "By Team": df["Team"].nunique() if "Team" in df else 0,
-        "By Sprint": df["Sprint"].nunique() if "Sprint" in df else 0,
-        "By Project": df["Project"].nunique() if "Project" in df else 0,
+        "Teams": df["Team"].nunique() if "Team" in df else 0,
+        "Sprints": df["Sprint"].nunique() if "Sprint" in df else 0,
+        "Projects": df["Project"].nunique() if "Project" in df else 0
     }
-    for i, (label, val) in enumerate(metrics.items()):
+    for i,(label,val) in enumerate(metrics.items()):
         with cols[i % 4]:
-            st.metric(label, val)
+            st.metric(label,val)
+
     st.subheader("📋 Full Issue List")
     st.dataframe(df[["Team","Title","Description","Status","Project","WebURL"]])
 
-# -------------------
-# KANBAN BOARD
-# -------------------
+# ---------------- Kanban ----------------
 with tab_kanban:
-    st.subheader("🗂 Kanban Board (Team → Status)")
+    st.subheader("🗂 Kanban Board")
     if "Team" not in df or "Status" not in df:
         st.warning("No Team/Status data found.")
     else:
         teams = sorted(df["Team"].dropna().unique())
         statuses = sorted(df["Status"].dropna().unique())
-        st.markdown("<div style='display:flex; overflow-x: auto;'>", unsafe_allow_html=True)
+        st.markdown("<div style='display:flex; overflow-x:auto;'>", unsafe_allow_html=True)
         for team in teams:
-            st.markdown("<div style='min-width:300px; margin-right:10px;'>", unsafe_allow_html=True)
+            st.markdown("<div style='min-width:300px;margin-right:10px;'>", unsafe_allow_html=True)
             st.markdown(f"### 👥 {team}")
             for status in statuses:
                 st.markdown(f"**{status}**")
-                subset = df[(df["Team"] == team) & (df["Status"] == status)]
-                for _, row in subset.iterrows():
-                    color = "#a0e7a0" if status.lower()=="done" else "#f0f2f6"
-                    st.markdown(
-                        f"<div style='padding:10px;margin:5px;border-radius:8px;background:{color};'>"
-                        f"<b>{row['Title']}</b><br>"
-                        f"<small>{row['Description'][:50]}...</small><br>"
-                        f"<a href='{row['WebURL']}' target='_blank'>🔗 Open</a>"
-                        f"</div>",
-                        unsafe_allow_html=True,
-                    )
+                subset = df[(df["Team"]==team) & (df["Status"]==status)]
+                for _,row in subset.iterrows():
+                    color="#a0e7a0" if status.lower()=="done" else "#f0f2f6"
+                    st.markdown(f"<div style='padding:10px;margin:5px;border-radius:8px;background:{color};'>"
+                                f"<b>{row['Title']}</b><br>"
+                                f"<small>{row['Description'][:50]}...</small><br>"
+                                f"<a href='{row['WebURL']}' target='_blank'>🔗 Open</a></div>", unsafe_allow_html=True)
             st.markdown("</div>", unsafe_allow_html=True)
         st.markdown("</div>", unsafe_allow_html=True)
 
-# -------------------
-# BY SPRINT
-# -------------------
+# ---------------- By Sprint ----------------
 with tab_sprint:
     st.subheader("📅 Issues by Sprint")
     if "Sprint" not in df:
         st.warning("No Sprint data found.")
     else:
-        for sprint in sorted(df["Sprint"].dropna().unique()):
+        all_sprints = sorted(set(sum([s.split(", ") for s in df["Sprint"].dropna()], [])))
+        for sprint in all_sprints:
             st.markdown(f"### 🏁 {sprint}")
-            st.dataframe(df[df["Sprint"] == sprint].sort_values("Team"))
+            subset = df[df["Sprint"].fillna("").str.contains(sprint)]
+            st.dataframe(subset.sort_values("Team"))
 
-# -------------------
-# HYGIENE
-# -------------------
+# ---------------- Hygiene ----------------
 with tab_hygiene:
     st.subheader("🧹 Hygiene Check")
-    missing_fields = ["Team","Status","Sprint","Project"]
+    missing_fields = ["Team","Status","Sprint","Project","Milestone","Title"]
     for field in missing_fields:
         if field in df:
             missing = df[df[field].isna() | (df[field]=="")]
@@ -196,36 +181,34 @@ with tab_hygiene:
                     with st.expander(f"Issue {row['ID']}: {row['Title']}"):
                         new_val = st.text_input(f"Set {field}", key=f"fix_{field}_{row['ID']}")
                         if st.button(f"Fix {field} for {row['ID']}", key=f"btn_fix_{field}_{row['ID']}"):
-                            labels = row.get("Labels","").split(", ")
+                            labels = row.get("Labels","").split(", ") if "Labels" in row else []
                             labels.append(f"{field}::{new_val}")
                             update_issue(row["ID"], labels=",".join(labels))
 
-# -------------------
-# EDIT
-# -------------------
+# ---------------- Edit Issues ----------------
 with tab_edit:
     st.subheader("✏️ Edit Issues")
     issue_id = st.selectbox("Choose Issue", df["ID"])
-    issue_row = df[df["ID"] == issue_id].iloc[0]
+    issue_row = df[df["ID"]==issue_id].iloc[0]
 
     new_title = st.text_input("Title", issue_row["Title"])
     new_desc = st.text_area("Description", issue_row["Description"])
-    new_team = st.selectbox("Team", [""] + sorted(df["Team"].dropna().unique()), index=0)
-    new_status = st.selectbox("Status", [""] + sorted(df["Status"].dropna().unique()), index=0)
-    new_sprint = st.selectbox("Sprint", [""] + sorted(df["Sprint"].dropna().unique()), index=0)
-    new_project = st.selectbox("Project", [""] + sorted(df["Project"].dropna().unique()), index=0)
+    new_team = st.selectbox("Team", [""]+sorted(df["Team"].dropna().unique()))
+    new_status = st.selectbox("Status", [""]+sorted(df["Status"].dropna().unique()))
+    new_sprint = st.selectbox("Sprint", [""]+sorted(df["Sprint"].dropna().unique()))
+    new_project = st.selectbox("Project", [""]+sorted(df["Project"].dropna().unique()))
+    new_milestone = st.selectbox("Milestone", [""]+sorted(df["Milestone"].dropna().unique()))
 
     if st.button("Update Issue"):
-        new_labels = []
+        new_labels=[]
         if new_team: new_labels.append(f"Team::{new_team}")
         if new_status: new_labels.append(f"Status::{new_status}")
         if new_sprint: new_labels.append(f"Sprint::{new_sprint}")
         if new_project: new_labels.append(f"Project::{new_project}")
+        if new_milestone: new_labels.append(f"Milestone::{new_milestone}")
         update_issue(issue_id, title=new_title, description=new_desc, labels=",".join(new_labels))
 
-# -------------------
-# COMMENTARY
-# -------------------
+# ---------------- Commentary ----------------
 with tab_commentary:
     st.subheader("📝 Project Commentary")
     scope = st.text_area("Scope")
