@@ -41,15 +41,26 @@ def app():
     st.title("🔄 Fund Data ETL Process & Future App Simulation")
 
     st.markdown("""
-    This demo shows the **end-to-end fund data process** from file upload, ETL, 
-    to the future app visualizations.  
-
-    **Important Notes:**
-    - This is purely a **backend process demo**. Users can see fund metrics, fund comparison, 
-      and add commentary in the front-end app.
-    - It is the **responsibility of the domain/fund owner or point of contact** to upload the files.
-    - All teams must ensure the **data is clean and accurate**; otherwise, the process will not work.
+    ### Disclaimer
+    This is a **demo architecture flow** and only for **discussion/presentation purposes**.  
+    It illustrates how data flows from the landing zone to the final app view.
     """)
+
+    # ----------------------------
+    # BUSINESS VIEW DIAGRAM (High-level)
+    # ----------------------------
+    st.header("🏢 Business View: High-Level Process Flow")
+    business_flow = graphviz.Digraph(format="png")
+    business_flow.attr(rankdir="LR", bgcolor="white", nodesep="1.0", splines="ortho")
+
+    business_flow.node("Landing", "Landing Zone / Share Drive\n(Business uploads files)", shape="folder", style="filled", fillcolor="#f2f2f2")
+    business_flow.node("ETL", "ETL / Processing\n(Backend process)", shape="box", style="filled", fillcolor="#ffe6cc")
+    business_flow.node("App", "Front-End App\nView Fund Metrics\nCompare Funds\nAdd Commentary", shape="box3d", style="filled", fillcolor="#f0f4f8")
+
+    business_flow.edge("Landing", "ETL")
+    business_flow.edge("ETL", "App")
+
+    st.graphviz_chart(business_flow, use_container_width=True)
 
     # ----------------------------
     # STEP 1: FILE UPLOAD SIMULATION
@@ -80,32 +91,26 @@ def app():
         master_df = pd.DataFrame()
 
     # ----------------------------
-    # COMBINED END-TO-END FLOW DIAGRAM
+    # TECHNICAL DETAILS: Star Schema & Consolidation
     # ----------------------------
-    st.header("🔀 End-to-End Data Flow & Future App")
-
-    flow = graphviz.Digraph(format="png")
-    flow.attr(rankdir="LR", bgcolor="white", nodesep="1.0", splines="ortho")
+    st.header("🔧 Technical View: Data Model & Process Flow")
+    tech_flow = graphviz.Digraph(format="png")
+    tech_flow.attr(rankdir='LR', bgcolor="white", nodesep="0.6", splines="ortho")
 
     # Input files
-    flow.node("InputFiles", "29 Excel Files\n(Input)", shape="folder", style="filled", fillcolor="#f2f2f2")
-
+    tech_flow.node("InputFiles", "29 Excel Files\n(Input)", shape="folder", style="filled", fillcolor="#f2f2f2")
     # ETL
-    flow.node("ETL", "⚙️ ETL Pipeline\n(Unpivot + Clean + Append)\n*Teams must ensure data is clean*", shape="box", style="filled", fillcolor="#ffe6cc")
-
+    tech_flow.node("ETLNode", "ETL Pipeline\n(Unpivot + Clean + Append)", shape="box", style="filled", fillcolor="#ffe6cc")
     # Star Schema
-    flow.node("FactsNode", "Fact Table\n(Fund_Facts)", shape="box", style="filled", fillcolor="#cfe2f3")
-    flow.node("FundDim", "Fund Dimension", shape="box", style="filled", fillcolor="#d9ead3")
-    flow.node("MetricDim", "Metric Dimension", shape="box", style="filled", fillcolor="#d9ead3")
-    flow.node("ColumnDim", "Column Dimension", shape="box", style="filled", fillcolor="#d9ead3")
-    flow.node("DateDim", "Date Dimension", shape="box", style="filled", fillcolor="#d9ead3")
-
-    # Consolidated master
-    flow.node("Consolidated", "Consolidated Master File\n(Output)", shape="cylinder", style="filled", fillcolor="#ffe6cc")
-
-    # Front-End App cluster (light background)
-    flow.attr('node', shape='box3d', style='filled')
-    with flow.subgraph(name='cluster_App') as app_cluster:
+    tech_flow.node("Facts", "Fact Table\n(Fund_Facts)", shape="box", style="filled", fillcolor="#cfe2f3")
+    tech_flow.node("FundDim", "Fund Dimension", shape="box", style="filled", fillcolor="#d9ead3")
+    tech_flow.node("MetricDim", "Metric Dimension", shape="box", style="filled", fillcolor="#d9ead3")
+    tech_flow.node("ColumnDim", "Column Dimension", shape="box", style="filled", fillcolor="#d9ead3")
+    tech_flow.node("DateDim", "Date Dimension", shape="box", style="filled", fillcolor="#d9ead3")
+    # Consolidated Master
+    tech_flow.node("Consolidated", "Consolidated Master File\n(Output)", shape="cylinder", style="filled", fillcolor="#ffe6cc")
+    # Front-End App cluster
+    with tech_flow.subgraph(name='cluster_App') as app_cluster:
         app_cluster.attr(style='rounded,filled', fillcolor='#f0f4f8', label='Front-End App', fontsize='16')
         app_cluster.node("FundMetrics", "📊 Fund Metrics")
         app_cluster.node("FundComparison", "📈 Fund Comparison")
@@ -115,16 +120,16 @@ def app():
         app_cluster.edge("FundComparison", "UserCommentary")
 
     # Connections
-    flow.edge("InputFiles", "ETL")
-    flow.edge("ETL", "FactsNode")
-    flow.edge("FactsNode", "FundDim")
-    flow.edge("FactsNode", "MetricDim")
-    flow.edge("FactsNode", "ColumnDim")
-    flow.edge("FactsNode", "DateDim")
-    flow.edge("FactsNode", "Consolidated")
-    flow.edge("Consolidated", "FundMetrics")  # enter front-end app
+    tech_flow.edge("InputFiles", "ETLNode")
+    tech_flow.edge("ETLNode", "Facts")
+    tech_flow.edge("Facts", "FundDim")
+    tech_flow.edge("Facts", "MetricDim")
+    tech_flow.edge("Facts", "ColumnDim")
+    tech_flow.edge("Facts", "DateDim")
+    tech_flow.edge("Facts", "Consolidated")
+    tech_flow.edge("Consolidated", "FundMetrics")
 
-    st.graphviz_chart(flow, use_container_width=True)
+    st.graphviz_chart(tech_flow, use_container_width=True)
 
     # ----------------------------
     # STAR SCHEMA DATA MODEL
