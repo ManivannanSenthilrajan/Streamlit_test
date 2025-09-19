@@ -8,7 +8,6 @@ import random
 # MOCK DATA GENERATOR
 # ----------------------------
 def generate_mock_master_data():
-    """Generate a mock master dataset with multiple funds, metrics, columns, and quarters."""
     funds = ["Fund_A", "Fund_B", "Fund_C"]
     metrics = ["Cost Leverage", "Par Value", "Watch List"]
     columns = ["Public Loan", "Price", "Private Loan"]
@@ -24,15 +23,13 @@ def generate_mock_master_data():
                         if metric != "Watch List"
                         else random.choice(["Yes", "No"])
                     )
-                    data.append(
-                        {
-                            "Fund_Name": fund,
-                            "Metric_Name": metric,
-                            "Column_Name": col,
-                            "Quarter": quarter,
-                            "Value": value,
-                        }
-                    )
+                    data.append({
+                        "Fund_Name": fund,
+                        "Metric_Name": metric,
+                        "Column_Name": col,
+                        "Quarter": quarter,
+                        "Value": value,
+                    })
     return pd.DataFrame(data)
 
 # ----------------------------
@@ -51,8 +48,10 @@ def app():
     # STEP 1: FILE UPLOAD SIMULATION
     # ----------------------------
     st.header("📂 Step 1: Upload Files to Landing Zone")
-    uploaded_files = st.file_uploader("Upload one or more Excel files (simulated)", 
-                                      type=["xlsx"], accept_multiple_files=True)
+    uploaded_files = st.file_uploader(
+        "Upload one or more Excel files (simulated)", 
+        type=["xlsx"], accept_multiple_files=True
+    )
 
     if uploaded_files:
         st.success(f"{len(uploaded_files)} file(s) uploaded to Landing Zone.")
@@ -104,7 +103,12 @@ def app():
 
         filtered_df = master_df[master_df["Fund_Name"].isin(selected_funds)]
 
-        # --- PIVOT: COLUMN NAMES AS ROWS, METRICS AS COLUMNS, QUARTERS + YTD AS COLUMNS ---
+        # --- Convert Yes/No to numeric ---
+        filtered_df['Value'] = filtered_df['Value'].apply(
+            lambda x: 1 if str(x).lower() == "yes" else (0 if str(x).lower() == "no" else x)
+        )
+
+        # --- Pivot to get Fund + Column + Metric + Quarter ---
         pivot_df = filtered_df.pivot_table(
             index=["Fund_Name", "Column_Name", "Quarter"],
             columns="Metric_Name",
@@ -112,21 +116,25 @@ def app():
             aggfunc="first"
         ).reset_index()
 
-        # Compute YTD for each Fund + Column_Name
-        ytd_df = (
-            pivot_df.groupby(["Fund_Name", "Column_Name"])
-            .agg({metric: "mean" for metric in pivot_df.columns if metric not in ["Fund_Name", "Column_Name", "Quarter"]})
-            .reset_index()
-        )
+        # --- Compute YTD for numeric metrics only ---
+        numeric_metrics = [col for col in pivot_df.columns if col not in ["Fund_Name", "Column_Name", "Quarter"] and pd.api.types.is_numeric_dtype(pivot_df[col])]
+
+        ytd_df = pivot_df.groupby(["Fund_Name", "Column_Name"]).agg({metric: "mean" for metric in numeric_metrics}).reset_index()
         ytd_df["Quarter"] = "YTD"
+
         pivot_df = pd.concat([pivot_df, ytd_df], ignore_index=True)
 
+        # --- Final pivot: Fund + Column as rows, Quarters + YTD as columns, metrics as sub-columns ---
         final_pivot = pivot_df.pivot_table(
             index=["Fund_Name", "Column_Name"],
             columns="Quarter",
-            values=[col for col in pivot_df.columns if col not in ["Fund_Name", "Column_Name", "Quarter"]],
+            values=numeric_metrics,
             aggfunc="first"
         )
+
+        # Flatten MultiIndex for nicer display
+        final_pivot.columns = [f"{metric} | {quarter}" for metric, quarter in final_pivot.columns]
+        final_pivot = final_pivot.reset_index()
 
         st.dataframe(final_pivot, use_container_width=True)
 
@@ -148,4 +156,3 @@ def app():
     st.graphviz_chart(dot, use_container_width=True)
 
 if __name__ == "__main__":
-    app()
