@@ -4,7 +4,6 @@ import pandas as pd
 import json
 import os
 from io import BytesIO
-import urllib3
 
 # ------------------------
 # Page Config
@@ -14,37 +13,36 @@ st.set_page_config(page_title="GitLab Issues Dashboard", layout="wide")
 # ------------------------
 # CSS Styling
 # ------------------------
-st.markdown(
-    """
-    <style>
-    body, div, p, span, input, textarea, select, button {
-        font-family: "Frutiger45Light", "Segoe UI", "Helvetica Neue", Arial, sans-serif !important;
-    }
-    .card {
-        padding: 10px;
-        margin: 5px;
-        border-radius: 8px;
-        color: white;
-        font-size: 13px;
-        box-shadow: 0px 2px 5px rgba(0,0,0,0.1);
-        margin-bottom: 8px;
-    }
-    .status-todo { background-color: #808080; }
-    .status-inprogress { background-color: #f4b400; }
-    .status-blocked { background-color: #db4437; }
-    .status-done { background-color: #0f9d58; }
-    .kanban-col {
-        border: 1px solid #ddd;
-        border-radius: 5px;
-        padding: 10px;
-        margin-right: 10px;
-        background-color: #f9f9f9;
-    }
-    .kanban-row { display: flex; flex-direction: row; margin-bottom: 20px; }
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
+st.markdown("""
+<style>
+body, div, p, span, input, textarea, select, button {
+    font-family: "Frutiger45Light", "Segoe UI", "Helvetica Neue", Arial, sans-serif !important;
+}
+.card {
+    padding: 10px;
+    margin: 5px;
+    border-radius: 8px;
+    color: white;
+    font-size: 13px;
+    box-shadow: 0px 2px 5px rgba(0,0,0,0.1);
+    margin-bottom: 8px;
+}
+.status-todo { background-color: #808080; }
+.status-inprogress { background-color: #f4b400; }
+.status-blocked { background-color: #db4437; }
+.status-done { background-color: #0f9d58; }
+.kanban-board { display: flex; overflow-x: auto; padding-bottom: 20px; }
+.kanban-col {
+    flex: 0 0 250px;
+    border: 1px solid #ddd;
+    border-radius: 5px;
+    padding: 10px;
+    margin-right: 10px;
+    background-color: #f9f9f9;
+}
+.kanban-col h4 { text-align: center; }
+</style>
+""", unsafe_allow_html=True)
 
 # ------------------------
 # Helper Functions
@@ -98,7 +96,13 @@ def issues_to_df(issues):
             "web_url": i["web_url"],
         }
         rows.append(row)
-    return pd.DataFrame(rows)
+    df = pd.DataFrame(rows)
+    # Strip spaces from label columns
+    for col in ["sprint", "team", "status", "project", "workstream"]:
+        if col in df.columns:
+            df[col] = df[col].astype(str).str.strip()
+            df[col] = df[col].replace("nan", None)
+    return df
 
 def download_excel(df, filename="data.xlsx"):
     buffer = BytesIO()
@@ -148,7 +152,6 @@ verify_ssl = st.sidebar.checkbox("Verify SSL Certificates", value=True)
 # Fetch & Filter Issues
 # ------------------------
 issues, df = [], pd.DataFrame()
-
 if project_id and access_token:
     try:
         issues = fetch_issues(base_url, project_id, access_token, verify_ssl)
@@ -161,7 +164,6 @@ if project_id and access_token:
         sprint_filter = st.sidebar.multiselect("Sprint", sorted(df["sprint"].dropna().unique()))
         team_filter = st.sidebar.multiselect("Team", sorted(df["team"].dropna().unique()))
         status_filter = st.sidebar.multiselect("Status", sorted(df["status"].dropna().unique()))
-
         filtered_df = df.copy()
         if sprint_filter:
             filtered_df = filtered_df[filtered_df["sprint"].isin(sprint_filter)]
@@ -188,6 +190,8 @@ with tab1:
         counts = filtered_df.groupby("status").size().reset_index(name="count")
         st.dataframe(counts)
         download_excel(filtered_df, "overview.xlsx")
+    else:
+        st.info("No issues to display in Overview.")
 
 # --- Kanban Tab ---
 with tab2:
@@ -201,18 +205,22 @@ with tab2:
             for team in teams:
                 st.markdown(f"**Team: {team}**")
                 team_df = sprint_df[sprint_df["team"] == team]
-                statuses = team_df["status"].dropna().unique()
-                cols = st.columns(len(statuses))
-                for idx, status in enumerate(statuses):
-                    with cols[idx]:
-                        st.markdown(f"**{status}**")
-                        for _, row in team_df[team_df["status"] == status].iterrows():
-                            css_class = status_class(row["status"])
-                            st.markdown(
-                                f"<div class='card {css_class}'><b>{row['title']}</b><br/>#{row['iid']}</div>",
-                                unsafe_allow_html=True,
-                            )
+                statuses = ["To Do", "In Progress", "Blocked", "Done"]
+                st.markdown('<div class="kanban-board">', unsafe_allow_html=True)
+                for status in statuses:
+                    col_df = team_df[team_df["status"] == status]
+                    st.markdown(f'<div class="kanban-col"><h4>{status}</h4>', unsafe_allow_html=True)
+                    for _, row in col_df.iterrows():
+                        css_class = status_class(row["status"])
+                        st.markdown(
+                            f"<div class='card {css_class}'><b>{row['title']}</b><br/>#{row['iid']}</div>",
+                            unsafe_allow_html=True
+                        )
+                    st.markdown('</div>', unsafe_allow_html=True)
+                st.markdown('</div>', unsafe_allow_html=True)
         download_excel(filtered_df, "by_sprint.xlsx")
+    else:
+        st.info("No issues to display in Kanban.")
 
 # --- Hygiene Tab ---
 with tab3:
@@ -235,35 +243,35 @@ with tab3:
                         new_labels = current_labels.copy()
                         body = {}
 
-                        # Status
+                        # Status Fix
                         if "Status" in check:
                             status_val = st.selectbox("Set Status", ["To Do", "In Progress", "Blocked", "Done"],
                                                       key=f"status_{check}_{row['iid']}")
                             new_labels = [l for l in new_labels if not l.lower().startswith("status::")]
                             new_labels.append(f"Status::{status_val}")
 
-                        # Team
+                        # Team Fix
                         if "Team" in check:
                             team_val = st.text_input("Set Team", key=f"team_{check}_{row['iid']}")
                             if team_val:
                                 new_labels = [l for l in new_labels if not l.lower().startswith("team::")]
                                 new_labels.append(f"Team::{team_val}")
 
-                        # Project
+                        # Project Fix
                         if "Project" in check:
                             proj_val = st.text_input("Set Project", key=f"proj_{check}_{row['iid']}")
                             if proj_val:
                                 new_labels = [l for l in new_labels if not l.lower().startswith("project::")]
                                 new_labels.append(f"Project::{proj_val}")
 
-                        # Sprint
+                        # Sprint Fix
                         if "Sprint" in check:
                             sprint_val = st.text_input("Set Sprint", key=f"sprint_{check}_{row['iid']}")
                             if sprint_val:
                                 new_labels = [l for l in new_labels if not l.lower().startswith("sprint::")]
                                 new_labels.append(f"Sprint::{sprint_val}")
 
-                        # Title
+                        # Title Fix
                         if "Title" in check:
                             new_title = st.text_input("Set Title", value=row["title"], key=f"title_{check}_{row['iid']}")
                             if new_title and new_title != row["title"]:
@@ -278,6 +286,8 @@ with tab3:
                             else:
                                 st.error(f"Failed: {resp.text}")
         download_excel(filtered_df, "hygiene.xlsx")
+    else:
+        st.info("No issues to display in Hygiene.")
 
 # --- Commentary Tab ---
 with tab4:
