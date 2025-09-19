@@ -1,266 +1,155 @@
-import streamlit as st
-import pandas as pd
+import os
 import requests
-import json
-import re
+import pandas as pd
+import streamlit as st
 from io import BytesIO
 from docx import Document
-import os
-from requests.exceptions import RequestException   # ✅ fixed import
 
+# ----------------------------
+# CONFIG
+# ----------------------------
+GITLAB_URL = "https://gitlab.com/api/v4"
+PROJECT_ID = os.getenv("GITLAB_PROJECT_ID", "123456")  # replace with your project ID
+PRIVATE_TOKEN = os.getenv("GITLAB_TOKEN", "your-token")
 
-# -------------------------
-# Utility Functions
-# -------------------------
+HEADERS = {"PRIVATE-TOKEN": PRIVATE_TOKEN}
 
-def normalize_label(label: str):
-    """
-    Normalize a GitLab label into Key, Value.
-    Handles inconsistent spacing, case, and numeric prefixes like 01-Status::.
-    """
-    if "::" not in label:
-        return None, None
+# ----------------------------
+# HELPERS
+# ----------------------------
+def fetch_issues():
+    """Fetch all issues from GitLab project"""
+    url = f"{GITLAB_URL}/projects/{PROJECT_ID}/issues"
+    params = {"per_page": 100, "state": "all"}
+    r = requests.get(url, headers=HEADERS, params=params)
+    r.raise_for_status()
+    return r.json()
 
-    key, val = label.split("::", 1)
-    key = re.sub(r"^\d+[- ]*", "", key.strip())  # remove numeric prefixes
-    val = val.strip()
+def update_issue(issue_iid, updates: dict):
+    """Update GitLab issue (real API call)"""
+    url = f"{GITLAB_URL}/projects/{PROJECT_ID}/issues/{issue_iid}"
+    r = requests.put(url, headers=HEADERS, json=updates)
+    if r.status_code == 200:
+        return True, r.json()
+    else:
+        return False, r.text
 
-    key = key.capitalize()  # e.g., Status, Team, Sprint
-    return key, val
-
-
-def fetch_issues(base_url, project_id, access_token):
-    """
-    Fetch all issues from a GitLab project using the API.
-    """
-    url = f"{base_url}/api/v4/projects/{project_id}/issues?per_page=100"
-    headers = {"PRIVATE-TOKEN": access_token}
-
-    all_issues = []
-    page = 1
-
-    while True:
-        try:
-            resp = requests.get(f"{url}&page={page}", headers=headers, timeout=30)
-            resp.raise_for_status()
-            data = resp.json()
-        except RequestException as e:
-            st.error(f"Error fetching issues: {e}")
-            break
-
-        if not data:
-            break
-
-        all_issues.extend(data)
-        page += 1
-
-    return all_issues
-
-
-def process_issues(issues):
-    """
-    Convert raw GitLab issues into a DataFrame with normalized fields.
-    Handles multi-value fields (e.g., multiple Sprints).
-    """
-    rows = []
-    for issue in issues:
-        row = {
-            "iid": issue.get("iid"),
-            "title": issue.get("title"),
-            "description": issue.get("description"),
-            "web_url": issue.get("web_url"),
-            "milestone": issue.get("milestone", {}).get("title") if issue.get("milestone") else None,
-            "status": None,
-            "team": None,
-            "sprint": [],
-            "project": None,
-            "workstream": None
-        }
-
-        for label in issue.get("labels", []):
-            key, val = normalize_label(label)
-            if not key:
-                continue
-            if key == "Status":
-                row["status"] = val
-            elif key == "Team":
-                row["team"] = val
-            elif key == "Sprint":
-                row["sprint"].append(val)   # ✅ allow multiple sprints
-            elif key == "Project":
-                row["project"] = val
-            elif key == "Workstream":
-                row["workstream"] = val
-            elif key == "Milestone" and not row["milestone"]:
-                row["milestone"] = val
-
-        rows.append(row)
-
-    df = pd.DataFrame(rows)
-
-    # Expand sprint list into separate rows
-    df = df.explode("sprint").reset_index(drop=True)
-    return df
-
-
-def export_docx(commentary):
-    """
-    Export commentary dictionary to a Word document.
-    """
+def download_commentary_as_docx(issues, filename="commentary.docx"):
+    """Download commentary as a Word file"""
     doc = Document()
-    doc.add_heading("Sprint Commentary", level=1)
+    doc.add_heading("Issue Commentary", level=1)
+    for issue in issues:
+        doc.add_paragraph(f"[{issue['iid']}] {issue['title']}")
+        doc.add_paragraph(issue.get("description", "No description"))
+        doc.add_paragraph("-" * 40)
+    buf = BytesIO()
+    doc.save(buf)
+    buf.seek(0)
+    return buf, filename
 
-    for section, text in commentary.items():
-        doc.add_heading(section, level=2)
-        doc.add_paragraph(text)
+def parse_labels(issue):
+    """Extract Sprint and Team labels"""
+    sprints = [lbl for lbl in issue["labels"] if lbl.lower().startswith("sprint")]
+    teams = [lbl for lbl in issue["labels"] if lbl.lower().startswith("team")]
+    return sprints, teams
 
-    buffer = BytesIO()
-    doc.save(buffer)
-    buffer.seek(0)
-    return buffer
+# ----------------------------
+# STREAMLIT APP
+# ----------------------------
+st.set_page_config(layout="wide")
+st.title("GitLab Kanban & Issue Manager")
 
+# Load issues
+issues = fetch_issues()
+df = pd.DataFrame([{
+    "iid": i["iid"],
+    "title": i["title"],
+    "state": i["state"],
+    "labels": i["labels"],
+    "sprints": ", ".join(parse_labels(i)[0]),
+    "teams": ", ".join(parse_labels(i)[1]),
+    "web_url": i["web_url"]
+} for i in issues])
 
-# -------------------------
-# Streamlit App
-# -------------------------
+# Tabs
+tab1, tab2, tab3, tab4 = st.tabs(["Kanban Board", "By Sprint", "Hygiene", "Commentary"])
 
-st.set_page_config(layout="wide", page_title="GitLab Issue Dashboard")
+# ----------------------------
+# KANBAN BOARD
+# ----------------------------
+with tab1:
+    st.subheader("Kanban Board (Teams × Status)")
+    teams = sorted({t for teamlist in df["teams"].str.split(", ") for t in teamlist if t})
+    statuses = ["opened", "in progress", "closed"]
+    container = st.container()
+    with container:
+        cols = st.columns(len(teams))
+        for col, team in zip(cols, teams):
+            with col:
+                st.markdown(f"### {team}")
+                for status in statuses:
+                    st.markdown(f"**{status.capitalize()}**")
+                    subset = df[(df["teams"].str.contains(team)) & (df["state"] == status)]
+                    for _, row in subset.iterrows():
+                        st.write(f"[#{row['iid']}] {row['title']}")
 
-st.sidebar.header("🔑 GitLab Settings")
-base_url = st.sidebar.text_input("Base URL", value="https://gitlab.com")
-project_id = st.sidebar.text_input("Project ID")
-access_token = st.sidebar.text_input("Access Token", type="password")
+# ----------------------------
+# BY SPRINT
+# ----------------------------
+with tab2:
+    st.subheader("Issues by Sprint")
+    all_sprints = sorted({s for sprintlist in df["sprints"].str.split(", ") for s in sprintlist if s})
+    for sprint in all_sprints:
+        st.markdown(f"### {sprint}")
+        sprint_df = df[df["sprints"].str.contains(sprint)]
+        st.table(sprint_df[["iid", "title", "teams", "state"]])
 
-if base_url and project_id and access_token:
-    issues = fetch_issues(base_url, project_id, access_token)
-    if issues:
-        df = process_issues(issues)
+# ----------------------------
+# HYGIENE TAB
+# ----------------------------
+with tab3:
+    st.subheader("Hygiene Checks")
+    missing_team = df[df["teams"] == ""]
+    missing_sprint = df[df["sprints"] == ""]
+    if not missing_team.empty:
+        st.error("Issues missing team:")
+        st.table(missing_team[["iid", "title"]])
+    if not missing_sprint.empty:
+        st.error("Issues missing sprint:")
+        st.table(missing_sprint[["iid", "title"]])
 
-        # Sidebar filters
-        st.sidebar.header("📊 Filters")
-        selected_sprint = st.sidebar.multiselect("Filter by Sprint", sorted(df["sprint"].dropna().unique()))
-        selected_team = st.sidebar.multiselect("Filter by Team", sorted(df["team"].dropna().unique()))
-        selected_status = st.sidebar.multiselect("Filter by Status", sorted(df["status"].dropna().unique()))
-        selected_project = st.sidebar.multiselect("Filter by Project", sorted(df["project"].dropna().unique()))
-        selected_milestone = st.sidebar.multiselect("Filter by Milestone", sorted(df["milestone"].dropna().unique()))
+    st.write("🔧 Fix an issue directly:")
+    issue_id = st.selectbox("Select Issue", df["iid"])
+    field = st.selectbox("Field", ["title", "sprint", "team", "state"])
+    if field == "sprint":
+        new_val = st.selectbox("New Sprint", all_sprints)
+        payload = {"labels": df.loc[df["iid"] == issue_id, "labels"].values[0] + [new_val]}
+    elif field == "team":
+        new_val = st.selectbox("New Team", teams)
+        payload = {"labels": df.loc[df["iid"] == issue_id, "labels"].values[0] + [new_val]}
+    elif field == "state":
+        new_val = st.selectbox("New State", ["opened", "closed"])
+        payload = {"state_event": "close" if new_val == "closed" else "reopen"}
+    else:
+        new_val = st.text_input("New Title")
+        payload = {"title": new_val}
 
-        # Apply filters
-        fdf = df.copy()
-        if selected_sprint:
-            fdf = fdf[fdf["sprint"].isin(selected_sprint)]
-        if selected_team:
-            fdf = fdf[fdf["team"].isin(selected_team)]
-        if selected_status:
-            fdf = fdf[fdf["status"].isin(selected_status)]
-        if selected_project:
-            fdf = fdf[fdf["project"].isin(selected_project)]
-        if selected_milestone:
-            fdf = fdf[fdf["milestone"].isin(selected_milestone)]
+    if st.button("Update Issue"):
+        ok, resp = update_issue(issue_id, payload)
+        if ok:
+            st.success(f"Issue #{issue_id} updated")
+        else:
+            st.error(f"Update failed: {resp}")
 
-        # Tabs
-        tab1, tab2, tab3, tab4, tab5 = st.tabs(
-            ["Overview", "Kanban (By Sprint/Team/Status)", "Hygiene", "Commentary", "Edit Issues"]
-        )
-
-        # -------------------------
-        # Tab 1: Overview
-        # -------------------------
-        with tab1:
-            st.subheader("📊 Overview Dashboard")
-
-            metrics = {
-                "Total Issues": len(fdf),
-                "By Status": fdf["status"].value_counts().to_dict(),
-                "By Team": fdf["team"].value_counts().to_dict(),
-                "By Sprint": fdf["sprint"].value_counts().to_dict(),
-            }
-
-            # Render clickable metrics
-            cols = st.columns(len(metrics["By Status"]))
-            for i, (status, count) in enumerate(sorted(metrics["By Status"].items())):
-                if cols[i].button(f"{status}: {count}", key=f"status_{status}"):
-                    st.session_state["status_filter"] = status
-
-            st.dataframe(fdf[["iid", "title", "description", "status", "team", "sprint", "project", "web_url"]])
-
-        # -------------------------
-        # Tab 2: Kanban
-        # -------------------------
-        with tab2:
-            st.subheader("🗂 Kanban Board")
-
-            swimlanes = fdf.groupby("status")
-
-            left, right = st.columns([3, 2])
-            with left:
-                for status, group in swimlanes:
-                    st.markdown(f"### {status}")
-                    for _, row in group.sort_values("team").iterrows():
-                        if st.button(f"{row['title']} ({row['team']})", key=f"card_{row['iid']}"):
-                            st.session_state["selected_issue"] = row.to_dict()
-
-            with right:
-                if "selected_issue" in st.session_state:
-                    issue = st.session_state["selected_issue"]
-                    st.markdown("### 📝 Issue Details")
-                    st.write(f"**Title:** {issue['title']}")
-                    st.write(f"**Description:** {issue['description']}")
-                    st.write(f"**Team:** {issue['team']}")
-                    st.write(f"**Status:** {issue['status']}")
-                    st.write(f"**Sprint:** {issue['sprint']}")
-                    st.write(f"[🔗 View in GitLab]({issue['web_url']})")
-
-        # -------------------------
-        # Tab 3: Hygiene
-        # -------------------------
-        with tab3:
-            st.subheader("🧹 Hygiene Checks")
-
-            missing_team = fdf[fdf["team"].isna()]
-            missing_status = fdf[fdf["status"].isna()]
-            missing_sprint = fdf[fdf["sprint"].isna()]
-
-            cols = st.columns(3)
-            if cols[0].button(f"No Team: {len(missing_team)}"):
-                st.dataframe(missing_team)
-            if cols[1].button(f"No Status: {len(missing_status)}"):
-                st.dataframe(missing_status)
-            if cols[2].button(f"No Sprint: {len(missing_sprint)}"):
-                st.dataframe(missing_sprint)
-
-        # -------------------------
-        # Tab 4: Commentary
-        # -------------------------
-        with tab4:
-            st.subheader("🗒 Sprint Commentary")
-
-            sections = ["Scope", "Key Dates", "Achievements", "Next Steps", "Challenges"]
-            commentary = {}
-            for sec in sections:
-                commentary[sec] = st.text_area(sec, "")
-
-            if st.button("💾 Save Commentary"):
-                buffer = export_docx(commentary)
-                st.download_button(
-                    "Download Commentary (Word)",
-                    data=buffer,
-                    file_name="commentary.docx",
-                    mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                )
-
-        # -------------------------
-        # Tab 5: Edit Issues
-        # -------------------------
-        with tab5:
-            st.subheader("✏️ Edit Issues")
-
-            issue_id = st.selectbox("Select Issue", fdf["iid"].unique())
-            issue_row = fdf[fdf["iid"] == issue_id].iloc[0]
-
-            new_title = st.text_input("Title", issue_row["title"])
-            new_desc = st.text_area("Description", issue_row["description"])
-            new_status = st.selectbox("Status", sorted(df["status"].dropna().unique()), index=0)
-            new_team = st.selectbox("Team", sorted(df["team"].dropna().unique()), index=0)
-
-            if st.button("Update Issue"):
-                st.success("Issue updated in GitLab (simulated).")
+# ----------------------------
+# COMMENTARY
+# ----------------------------
+with tab4:
+    st.subheader("Commentary Download")
+    buf, filename = download_commentary_as_docx(issues)
+    st.download_button(
+        label="Download Commentary (Word)",
+        data=buf,
+        file_name=filename,
+        mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    )
