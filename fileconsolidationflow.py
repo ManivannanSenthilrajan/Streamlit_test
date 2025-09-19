@@ -42,7 +42,7 @@ def app():
 
     st.markdown("""
     Interactive demo showing how fund data flows from quarterly Excel files 
-    into a consolidated **reporting data model**. 
+    into a consolidated **reporting data model** and visualizes future app functionality. 
     """)
 
     # ----------------------------
@@ -72,19 +72,6 @@ def app():
         master_df = generate_mock_master_data()
     else:
         master_df = pd.DataFrame()
-
-    # ----------------------------
-    # VISUAL FLOW DIAGRAM
-    # ----------------------------
-    st.header("🔀 End-to-End Visual Flow")
-    flow = graphviz.Digraph(format="png")
-    flow.attr(rankdir="LR", bgcolor="white", nodesep="1.0", splines="ortho")
-    flow.node("Landing", "Step 1:\n📂 Landing Zone", shape="folder", style="filled", fillcolor="#f2f2f2")
-    flow.node("ETL", "Step 2:\n⚙️ ETL Pipeline", shape="box", style="filled", fillcolor="#ffe6cc")
-    flow.node("Master", "Step 3:\n🗄️ Master File", shape="cylinder", style="filled", fillcolor="#d9ead3")
-    flow.node("Model", "Step 4:\n📊 Star Schema", shape="box3d", style="filled", fillcolor="#cfe2f3")
-    flow.edges([("Landing","ETL"),("ETL","Master"),("Master","Model")])
-    st.graphviz_chart(flow, use_container_width=True)
 
     # ----------------------------
     # CONSOLIDATED DATA TABLE
@@ -123,6 +110,33 @@ def app():
         final_df = pivot_df.reset_index()
 
         st.dataframe(final_df, use_container_width=True)
+
+    # ----------------------------
+    # VISUAL FLOW DIAGRAM (with future app after consolidation)
+    # ----------------------------
+    st.header("🔀 End-to-End Visual Flow (Including Future App)")
+    flow = graphviz.Digraph(format="png")
+    flow.attr(rankdir="LR", bgcolor="white", nodesep="1.0", splines="ortho")
+
+    # Existing steps
+    flow.node("Landing", "Step 1:\n📂 Landing Zone\n29 Excel Files", shape="folder", style="filled", fillcolor="#f2f2f2")
+    flow.node("ETL", "Step 2:\n⚙️ ETL Pipeline\n(Unpivot + Clean + Append)", shape="box", style="filled", fillcolor="#ffe6cc")
+    flow.node("Master", "Step 3:\n🗄️ Consolidated Master File", shape="cylinder", style="filled", fillcolor="#d9ead3")
+
+    # Future app steps (after consolidation)
+    flow.node("FundMetrics", "Step 4:\n📊 Fund Metrics View\nInteractive dashboards", shape="box3d", style="filled", fillcolor="#cfe2f3")
+    flow.node("FundComparison", "Step 5:\n📈 Fund Comparison View\nCompare multiple funds", shape="box3d", style="filled", fillcolor="#d9d2e9")
+    flow.node("UserCommentary", "Step 6:\n📝 User Commentary Section\nAdd notes and insights", shape="box3d", style="filled", fillcolor="#f4cccc")
+
+    # Connections
+    flow.edge("Landing", "ETL")
+    flow.edge("ETL", "Master")
+    flow.edge("Master", "FundMetrics")
+    flow.edge("FundMetrics", "FundComparison")
+    flow.edge("FundMetrics", "UserCommentary")  # commentary can branch from metrics
+    flow.edge("FundComparison", "UserCommentary")  # optional link from comparison to commentary
+
+    st.graphviz_chart(flow, use_container_width=True)
 
     # ----------------------------
     # STAR SCHEMA DATA MODEL
