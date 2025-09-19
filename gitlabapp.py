@@ -25,10 +25,6 @@ def safe_milestone(issue):
     return ""
 
 def parse_labels(labels):
-    """
-    Robustly parse GitLab labels into normalized fields.
-    Handles numeric prefixes, dashes, spaces, inconsistent capitalization.
-    """
     parsed = {
         "Team": "",
         "Status": "",
@@ -37,9 +33,7 @@ def parse_labels(labels):
         "Workstream": "",
         "Milestone": ""
     }
-
     for raw_label in labels:
-        # Remove leading numbers, optional dash, and spaces
         label = re.sub(r"^\d+\-?\s*", "", raw_label.strip())
         if "::" not in label:
             continue
@@ -90,8 +84,16 @@ def update_issue(base_url, project_id, token, iid, payload):
     resp = requests.put(url, headers=headers, json=payload, verify=False)
     return resp.status_code == 200
 
+STATUS_COLORS = {
+    "Done": "#2ecc71",
+    "In Progress": "#f1c40f",
+    "To Do": "#e74c3c",
+    "Blocked": "#e67e22",
+    "": "#bdc3c7"
+}
+
 # ------------------------
-# Sidebar Filters
+# Sidebar
 # ------------------------
 st.sidebar.header("🔑 GitLab Connection")
 base_url = st.sidebar.text_input("Base URL", value="https://gitlab.com")
@@ -109,11 +111,17 @@ if df.empty:
 
 # Filters
 st.sidebar.header("⚙️ Filters")
-filter_sprint = st.sidebar.multiselect("Sprint", df["sprint"].dropna().unique())
-filter_team = st.sidebar.multiselect("Team", df["team"].dropna().unique())
-filter_project = st.sidebar.multiselect("Project", df["project"].dropna().unique())
-filter_milestone = st.sidebar.multiselect("Milestone", df["milestone"].dropna().unique())
-filter_status = st.sidebar.multiselect("Status", df["status"].dropna().unique())
+all_sprints = sorted(df["sprint"].dropna().unique().tolist())
+all_teams = sorted(df["team"].dropna().unique().tolist())
+all_projects = sorted(df["project"].dropna().unique().tolist())
+all_milestones = sorted(df["milestone"].dropna().unique().tolist())
+all_statuses = sorted(df["status"].dropna().unique().tolist())
+
+filter_sprint = st.sidebar.multiselect("Sprint", all_sprints)
+filter_team = st.sidebar.multiselect("Team", all_teams)
+filter_project = st.sidebar.multiselect("Project", all_projects)
+filter_milestone = st.sidebar.multiselect("Milestone", all_milestones)
+filter_status = st.sidebar.multiselect("Status", all_statuses)
 
 filtered_df = df.copy()
 if filter_sprint:
@@ -135,7 +143,7 @@ tab1, tab2, tab3, tab4, tab5 = st.tabs(
 )
 
 # ------------------------
-# Tab 1: Overview Dashboard
+# Tab 1: Overview
 # ------------------------
 with tab1:
     st.subheader("Overview Dashboard")
@@ -146,25 +154,34 @@ with tab1:
             st.metric(label=field.title(), value=len(counts))
             for k, v in counts.items():
                 st.write(f"{k}: {v}")
-
     st.markdown("### Full Issue Table")
     st.dataframe(filtered_df[["team","title","description","status","project","web_url"]])
     st.download_button("⬇️ Download Overview Data", filtered_df.to_csv(index=False), "overview.csv")
 
 # ------------------------
-# Tab 2: Kanban Board
+# Tab 2: Kanban
 # ------------------------
 with tab2:
     st.subheader("Kanban Board")
     group_by = st.radio("Swimlane by", ["Status", "Team"])
     kanban_df = filtered_df.copy()
-    swimlanes = kanban_df[group_by.lower()].replace("", "None").unique()
+    kanban_df[group_by.lower()] = kanban_df[group_by.lower()].replace("", "None")
+    kanban_df = kanban_df.sort_values("team") if group_by=="Status" else kanban_df.sort_values("status")
+    swimlanes = kanban_df[group_by.lower()].unique()
     cols = st.columns(len(swimlanes) or 1)
     for i, lane in enumerate(swimlanes):
         with cols[i]:
             st.markdown(f"**{lane}**")
-            for _, row in kanban_df[kanban_df[group_by.lower()].replace("", "None")==lane].iterrows():
-                st.info(f"#{row['iid']} - {row['title']}\nStatus: {row['status']}\nTeam: {row['team']}")
+            for _, row in kanban_df[kanban_df[group_by.lower()]==lane].iterrows():
+                color = STATUS_COLORS.get(row["status"], "#bdc3c7")
+                if st.button(f"#{row['iid']} - {row['title']}", key=f"card_{row['iid']}"):
+                    col1, col2 = st.columns([3,2])
+                    with col1:
+                        st.markdown(f"<div style='background-color:{color};padding:10px;border-radius:5px'>**{row['title']}**</div>", unsafe_allow_html=True)
+                    with col2:
+                        st.markdown(f"**Team:** {row['team']}  \n**Status:** {row['status']}  \n**Sprint:** {row['sprint']}  \n**Milestone:** {row['milestone']}")
+                        st.markdown(f"[Open in GitLab]({row['web_url']})")
+                        st.markdown(f"Description:\n{row['description']}")
 
 # ------------------------
 # Tab 3: Hygiene
@@ -201,7 +218,7 @@ with tab3:
 # ------------------------
 with tab4:
     st.subheader("Sprint Commentary")
-    sprints = filtered_df["sprint"].dropna().unique()
+    sprints = df["sprint"].dropna().unique()
     sprint_sel = st.selectbox("Select Sprint", sprints)
     scope = st.text_area("Scope")
     key_dates = st.text_area("Key Dates")
@@ -255,8 +272,11 @@ with tab5:
         if new_project: labels.append(f"Project::{new_project}")
         if new_workstream: labels.append(f"Workstream::{new_workstream}")
         if new_milestone: labels.append(f"Milestone::{new_milestone}")
-
-        payload = {"title": new_title,"description":new_desc,"labels":labels}
+        payload = {
+            "title": new_title,
+            "description": new_desc,
+            "labels": labels
+        }
         success = update_issue(base_url, project_id, token, issue_id, payload)
         if success:
             st.success("Updated!")
