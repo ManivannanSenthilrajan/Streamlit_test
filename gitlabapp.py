@@ -2,7 +2,6 @@ import streamlit as st
 import pandas as pd
 import requests
 from collections import defaultdict
-from docx import Document
 from io import BytesIO
 
 st.set_page_config(page_title="GitLab Issue Dashboard", layout="wide")
@@ -47,7 +46,7 @@ def build_dataframe(issues):
             "Title": issue.get("title", ""),
             "Description": issue.get("description", ""),
             "WebURL": issue.get("web_url", ""),
-            "Milestone": issue.get("milestone", {}).get("title", ""),
+            "Milestone": issue.get("milestone", {}).get("title", "") if issue.get("milestone") else "",
             **labels
         })
     return pd.DataFrame(rows)
@@ -65,26 +64,15 @@ def update_issue(issue_id, title=None, description=None, labels=None):
     except Exception as e:
         st.error(f"Failed to update {issue_id}: {e}")
 
-def download_commentary(scope, dates, achievements, next_steps, challenges, fmt="docx"):
-    if fmt == "docx":
-        doc = Document()
-        doc.add_heading("Project Commentary", 0)
-        doc.add_heading("Scope", level=1); doc.add_paragraph(scope)
-        doc.add_heading("Key Dates", level=1); doc.add_paragraph(dates)
-        doc.add_heading("Achievements", level=1); doc.add_paragraph(achievements)
-        doc.add_heading("Next Steps", level=1); doc.add_paragraph(next_steps)
-        doc.add_heading("Challenges", level=1); doc.add_paragraph(challenges)
-        buf = BytesIO(); doc.save(buf); buf.seek(0)
-        return buf, "docx"
-    else:
-        text = (
-            f"Scope:\n{scope}\n\n"
-            f"Key Dates:\n{dates}\n\n"
-            f"Achievements:\n{achievements}\n\n"
-            f"Next Steps:\n{next_steps}\n\n"
-            f"Challenges:\n{challenges}"
-        )
-        return BytesIO(text.encode()), "txt"
+def download_commentary(scope, dates, achievements, next_steps, challenges):
+    text = (
+        f"Scope:\n{scope}\n\n"
+        f"Key Dates:\n{dates}\n\n"
+        f"Achievements:\n{achievements}\n\n"
+        f"Next Steps:\n{next_steps}\n\n"
+        f"Challenges:\n{challenges}"
+    )
+    return BytesIO(text.encode()), "txt"
 
 # ---------------- Main App ----------------
 st.title("📊 GitLab Issue Dashboard")
@@ -140,9 +128,7 @@ with tab_kanban:
     else:
         teams = sorted(df["Team"].dropna().unique())
         statuses = sorted(df["Status"].dropna().unique())
-        st.markdown("<div style='display:flex; overflow-x:auto;'>", unsafe_allow_html=True)
         for team in teams:
-            st.markdown("<div style='min-width:300px;margin-right:10px;'>", unsafe_allow_html=True)
             st.markdown(f"### 👥 {team}")
             for status in statuses:
                 st.markdown(f"**{status}**")
@@ -153,8 +139,6 @@ with tab_kanban:
                                 f"<b>{row['Title']}</b><br>"
                                 f"<small>{row['Description'][:50]}...</small><br>"
                                 f"<a href='{row['WebURL']}' target='_blank'>🔗 Open</a></div>", unsafe_allow_html=True)
-            st.markdown("</div>", unsafe_allow_html=True)
-        st.markdown("</div>", unsafe_allow_html=True)
 
 # ---------------- By Sprint ----------------
 with tab_sprint:
@@ -216,9 +200,7 @@ with tab_commentary:
     achievements = st.text_area("Achievements")
     next_steps = st.text_area("Next Steps")
     challenges = st.text_area("Challenges")
-    fmt = st.radio("Download as", ["docx","txt"], horizontal=True)
 
     if st.button("Download Commentary"):
-        buf, ext = download_commentary(scope, dates, achievements, next_steps, challenges, fmt)
+        buf, ext = download_commentary(scope, dates, achievements, next_steps, challenges)
         st.download_button("Download File", buf, file_name=f"commentary.{ext}")
-
