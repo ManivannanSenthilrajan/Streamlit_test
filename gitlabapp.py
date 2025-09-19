@@ -33,13 +33,21 @@ st.markdown(
     .status-inprogress { background-color: #f4b400; }
     .status-blocked { background-color: #db4437; }
     .status-done { background-color: #0f9d58; }
+    .kanban-col {
+        border: 1px solid #ddd;
+        border-radius: 5px;
+        padding: 10px;
+        margin-right: 10px;
+        background-color: #f9f9f9;
+    }
+    .kanban-row { display: flex; flex-direction: row; margin-bottom: 20px; }
     </style>
     """,
     unsafe_allow_html=True,
 )
 
 # ------------------------
-# Helpers
+# Helper Functions
 # ------------------------
 def fetch_issues(base_url, project_id, token, verify_ssl=True):
     url = f"{base_url}/api/v4/projects/{project_id}/issues?per_page=100"
@@ -230,38 +238,38 @@ with tab3:
                         # Status
                         if "Status" in check:
                             status_val = st.selectbox("Set Status", ["To Do", "In Progress", "Blocked", "Done"],
-                                                      key=f"status_{row['iid']}")
+                                                      key=f"status_{check}_{row['iid']}")
                             new_labels = [l for l in new_labels if not l.lower().startswith("status::")]
                             new_labels.append(f"Status::{status_val}")
 
                         # Team
                         if "Team" in check:
-                            team_val = st.text_input("Set Team", key=f"team_{row['iid']}")
+                            team_val = st.text_input("Set Team", key=f"team_{check}_{row['iid']}")
                             if team_val:
                                 new_labels = [l for l in new_labels if not l.lower().startswith("team::")]
                                 new_labels.append(f"Team::{team_val}")
 
                         # Project
                         if "Project" in check:
-                            proj_val = st.text_input("Set Project", key=f"proj_{row['iid']}")
+                            proj_val = st.text_input("Set Project", key=f"proj_{check}_{row['iid']}")
                             if proj_val:
                                 new_labels = [l for l in new_labels if not l.lower().startswith("project::")]
                                 new_labels.append(f"Project::{proj_val}")
 
                         # Sprint
                         if "Sprint" in check:
-                            sprint_val = st.text_input("Set Sprint", key=f"sprint_{row['iid']}")
+                            sprint_val = st.text_input("Set Sprint", key=f"sprint_{check}_{row['iid']}")
                             if sprint_val:
                                 new_labels = [l for l in new_labels if not l.lower().startswith("sprint::")]
                                 new_labels.append(f"Sprint::{sprint_val}")
 
                         # Title
                         if "Title" in check:
-                            new_title = st.text_input("Set Title", value=row["title"], key=f"title_{row['iid']}")
+                            new_title = st.text_input("Set Title", value=row["title"], key=f"title_{check}_{row['iid']}")
                             if new_title and new_title != row["title"]:
                                 body["title"] = new_title
 
-                        if st.button("Apply Fix", key=f"fix_{row['iid']}"):
+                        if st.button("Apply Fix", key=f"fix_{check}_{row['iid']}"):
                             body["labels"] = new_labels
                             resp = update_issue(base_url, project_id, access_token, row["iid"], body, verify_ssl)
                             if resp.status_code == 200:
