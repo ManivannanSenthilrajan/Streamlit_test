@@ -1,5 +1,5 @@
 import streamlit as st
-from utils.gitlab_api import get_issues
+from utils.gitlab_api import get_issues, safe_join
 from utils.ui_components import render_dynamic_summary_cards
 import pandas as pd
 
@@ -22,10 +22,10 @@ def render():
         st.warning("No issues found.")
         return
 
-    # Flatten any list columns to strings to prevent unhashable errors
+    # Flatten any complex objects into strings
     for col in df.columns:
         if df[col].dtype == 'object':
-            df[col] = df[col].apply(lambda x: ", ".join(x) if isinstance(x, list) else str(x))
+            df[col] = df[col].apply(safe_join)
 
     render_dynamic_summary_cards(df)
 
