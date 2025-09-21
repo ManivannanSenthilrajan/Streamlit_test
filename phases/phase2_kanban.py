@@ -22,6 +22,16 @@ def render():
         st.warning("No issues found.")
         return
 
+    # Ensure all expected label columns exist
+    for col in ["status", "team", "milestone", "sprint", "project", "workstream"]:
+        if col not in df.columns:
+            df[col] = ""
+
+    # Flatten any complex objects into strings
+    for col in df.columns:
+        if df[col].dtype == 'object':
+            df[col] = df[col].apply(safe_join)
+
     render_dynamic_summary_cards(df)
 
     grouping_option = st.selectbox("Group swimlanes by:", ["status", "team"])
