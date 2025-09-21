@@ -30,7 +30,7 @@ def get_issues(project_ids, token, ssl_verify=False):
             page += 1
 
     if not all_issues:
-        return pd.DataFrame()  # always return a DataFrame
+        return pd.DataFrame()  # always return DataFrame
 
     # Convert list of issues to DataFrame
     df = pd.json_normalize(all_issues)
@@ -47,7 +47,7 @@ def get_issues(project_ids, token, ssl_verify=False):
     # Parse labels dynamically
     df = parse_labels(df)
 
-    # Deduplicate issues by ID (avoid multiple appearances in Kanban)
+    # Deduplicate issues by ID
     df = df.drop_duplicates(subset=["id"])
 
     return df
@@ -92,9 +92,9 @@ def parse_labels(df):
                     label_dict[key] = value
         # Assign all keys as strings
         for key in all_keys:
-            df.at[idx, key] = label_dict.get(key, "")
+            df.at[idx, key] = str(label_dict.get(key, ""))
 
-    # Ensure all columns are strings
+    # Ensure all columns are strings (prevent unhashable errors)
     for col in all_keys:
         df[col] = df[col].astype(str)
 
