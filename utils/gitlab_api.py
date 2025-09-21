@@ -1,69 +1,99 @@
 import requests
 import pandas as pd
-import io
-import urllib3
-from urllib3.exceptions import InsecureRequestWarning
-from utils.label_parser import parse_labels
 
-urllib3.disable_warnings(InsecureRequestWarning)
+def get_issues(project_ids, token, ssl_verify=False):
+    """
+    Fetch issues from multiple GitLab projects and return a clean DataFrame.
 
-BASE_URL = "https://gitlab.com/api/v4"
+    Args:
+        project_ids (list of str): GitLab project IDs
+        token (str): Personal Access Token
+        ssl_verify (bool): Whether to verify SSL certificates
 
-def get_issues(project_ids, token):
-    """Fetch issues from multiple GitLab projects with SSL verify disabled."""
+    Returns:
+        pd.DataFrame: Issues with parsed labels, deduplicated
+    """
     all_issues = []
     headers = {"PRIVATE-TOKEN": token}
+
     for project_id in project_ids:
         page = 1
         while True:
-            url = f"{BASE_URL}/projects/{project_id}/issues"
+            url = f"https://gitlab.com/api/v4/projects/{project_id}/issues"
             params = {"per_page": 100, "page": page}
-            resp = requests.get(url, headers=headers, params=params, verify=False)
-            if resp.status_code != 200:
-                all_issues.append({"error": f"Failed to fetch issues for {project_id}: {resp.text}"})
-                break
+            resp = requests.get(url, headers=headers, params=params, verify=ssl_verify)
+            resp.raise_for_status()
             issues = resp.json()
             if not issues:
                 break
             all_issues.extend(issues)
             page += 1
-    return all_issues
+
+    if not all_issues:
+        return pd.DataFrame()  # always return a DataFrame
+
+    # Convert list of issues to DataFrame
+    df = pd.json_normalize(all_issues)
+
+    # Keep only required columns
+    df = df.rename(columns={
+        "id": "id",
+        "title": "title",
+        "description": "description",
+        "web_url": "web_url",
+        "labels": "labels"
+    })
+
+    # Parse labels dynamically
+    df = parse_labels(df)
+
+    # Deduplicate issues by ID (avoid multiple appearances in Kanban)
+    df = df.drop_duplicates(subset=["id"])
+
+    return df
 
 
-def build_dataframe(issues):
-    """Convert raw GitLab issues to DataFrame with parsed labels."""
-    rows = []
-    for issue in issues:
-        if "error" in issue:
+def parse_labels(df):
+    """
+    Parse GitLab issue labels into separate columns.
+    Handles key::value pattern, multiple values per key, case-insensitive.
+    Fills missing values with None.
+
+    Returns:
+        pd.DataFrame: DataFrame with dynamic label columns
+    """
+    if "labels" not in df.columns:
+        return df
+
+    # Collect all unique keys
+    all_keys = set()
+    for label_list in df["labels"]:
+        if not label_list:
             continue
-        labels_parsed = parse_labels(issue.get("labels", []))
-        rows.append({
-            "id": issue["iid"],
-            "project_id": issue["project_id"],
-            "title": issue["title"],
-            "description": issue["description"],
-            "web_url": issue["web_url"],
-            "team": labels_parsed["team"],
-            "sprint": labels_parsed["sprint"],
-            "status": labels_parsed["status"],
-            "milestone": labels_parsed["milestone_label"],
-            "project": labels_parsed["project_label"],
-            "workstream": labels_parsed["workstream"]
-        })
-    return pd.DataFrame(rows)
+        for label in label_list:
+            if "::" in label:
+                key = label.split("::")[0].strip().lower()
+                all_keys.add(key)
 
+    # Initialize empty columns
+    for key in all_keys:
+        df[key] = None
 
-def update_issue(project_id, issue_id, token, payload):
-    """Update a GitLab issue using PUT API."""
-    headers = {"PRIVATE-TOKEN": token, "Content-Type": "application/json"}
-    url = f"{BASE_URL}/projects/{project_id}/issues/{issue_id}"
-    resp = requests.put(url, headers=headers, json=payload, verify=False)
-    return resp
+    # Fill values
+    for idx, label_list in enumerate(df["labels"]):
+        if not label_list:
+            continue
+        for label in label_list:
+            if "::" in label:
+                parts = label.split("::")
+                key = parts[0].strip().lower()
+                value = parts[1].strip() if len(parts) > 1 else None
+                # If multiple values for same key, join with comma
+                if df.at[idx, key]:
+                    df.at[idx, key] += f", {value}"
+                else:
+                    df.at[idx, key] = value
 
-
-def download_excel(df):
-    """Generate Excel bytes for download."""
-    output = io.BytesIO()
-    with pd.ExcelWriter(output, engine="openpyxl") as writer:
-        df.to_excel(writer, index=False, sheet_name="Issues")
-    return output.getvalue()
+    # Optional: clean column names (replace spaces with underscores)
+    df.rename(columns=lambda x: x.replace(" ", "_").lower(), inplace=True)
+    return df
