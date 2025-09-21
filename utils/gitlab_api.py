@@ -4,14 +4,6 @@ import pandas as pd
 def get_issues(project_ids, token, ssl_verify=False):
     """
     Fetch issues from multiple GitLab projects and return a clean DataFrame.
-
-    Args:
-        project_ids (list of str): GitLab project IDs
-        token (str): Personal Access Token
-        ssl_verify (bool): Whether to verify SSL certificates
-
-    Returns:
-        pd.DataFrame: Issues with parsed labels, deduplicated
     """
     all_issues = []
     headers = {"PRIVATE-TOKEN": token}
@@ -30,12 +22,10 @@ def get_issues(project_ids, token, ssl_verify=False):
             page += 1
 
     if not all_issues:
-        return pd.DataFrame()  # always return DataFrame
+        return pd.DataFrame()  # always return a DataFrame
 
-    # Convert list of issues to DataFrame
     df = pd.json_normalize(all_issues)
 
-    # Keep only required columns
     df = df.rename(columns={
         "id": "id",
         "title": "title",
@@ -44,25 +34,18 @@ def get_issues(project_ids, token, ssl_verify=False):
         "labels": "labels"
     })
 
-    # Parse labels dynamically
     df = parse_labels(df)
-
-    # Deduplicate issues by ID
     df = df.drop_duplicates(subset=["id"])
-
     return df
 
 
 def parse_labels(df):
     """
     Parse GitLab issue labels into separate columns.
-    Handles key::value pattern, multiple values per key, case-insensitive.
-    Fills missing values with empty string.
     """
     if "labels" not in df.columns:
         return df
 
-    # Collect all unique keys
     all_keys = set()
     for label_list in df["labels"]:
         if not label_list:
@@ -72,11 +55,9 @@ def parse_labels(df):
                 key = label.split("::")[0].strip().lower()
                 all_keys.add(key)
 
-    # Initialize empty columns
     for key in all_keys:
         df[key] = ""
 
-    # Fill values row by row
     for idx, label_list in enumerate(df["labels"]):
         if not label_list:
             continue
@@ -90,15 +71,11 @@ def parse_labels(df):
                     label_dict[key] += f", {value}"
                 else:
                     label_dict[key] = value
-        # Assign all keys as strings
         for key in all_keys:
             df.at[idx, key] = str(label_dict.get(key, ""))
 
-    # Ensure all columns are strings (prevent unhashable errors)
     for col in all_keys:
         df[col] = df[col].astype(str)
 
-    # Optional: clean column names
     df.rename(columns=lambda x: x.replace(" ", "_").lower(), inplace=True)
-
     return df
