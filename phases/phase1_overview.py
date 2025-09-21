@@ -1,6 +1,5 @@
 import streamlit as st
 from utils.gitlab_api import download_excel
-from utils.ui_components import summary_cards
 
 def render():
     if "issues_df" not in st.session_state:
@@ -11,23 +10,35 @@ def render():
 
     st.subheader("📌 Overview")
 
+    # Dynamically detect all label-based columns (besides id, title, description, web_url)
+    label_columns = [col for col in df.columns if col not in ["id", "title", "description", "web_url"]]
+
+    # Sidebar Filters (dynamically created)
     with st.sidebar:
         st.markdown("### 🔍 Filters")
-        selected_team = st.multiselect("Team", sorted(df["team"].unique()))
-        selected_sprint = st.multiselect("Sprint", sorted(df["sprint"].unique()))
-        selected_status = st.multiselect("Status", sorted(df["status"].unique()))
+        filters = {}
+        for col in label_columns:
+            unique_values = sorted(df[col].dropna().unique())
+            filters[col] = st.multiselect(col.capitalize(), unique_values)
 
+    # Apply filters dynamically
     filtered_df = df.copy()
-    if selected_team:
-        filtered_df = filtered_df[filtered_df["team"].isin(selected_team)]
-    if selected_sprint:
-        filtered_df = filtered_df[filtered_df["sprint"].isin(selected_sprint)]
-    if selected_status:
-        filtered_df = filtered_df[filtered_df["status"].isin(selected_status)]
+    for col, selected_values in filters.items():
+        if selected_values:
+            filtered_df = filtered_df[filtered_df[col].isin(selected_values)]
 
-    summary_cards(filtered_df)
+    # Dynamic summary cards (1 row with up to 4 cards per row)
+    cols = st.columns(min(len(label_columns), 4))
+    for i, col in enumerate(label_columns):
+        with cols[i % 4]:
+            st.metric(col.capitalize(), filtered_df[col].nunique())
+
     st.dataframe(filtered_df, use_container_width=True)
 
     excel_data = download_excel(filtered_df)
-    st.download_button("📥 Download Filtered Issues", data=excel_data,
-                       file_name="issues.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+    st.download_button(
+        "📥 Download Filtered Issues (Excel)",
+        data=excel_data,
+        file_name="issues.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
