@@ -1,5 +1,5 @@
 import streamlit as st
-from utils.gitlab_api import fetch_issues
+from utils.gitlab_api import get_issues
 from utils.ui_components import STATUS_COLORS, render_dynamic_summary_cards
 import pandas as pd
 
@@ -16,28 +16,33 @@ def render():
 
     with st.spinner("Fetching issues..."):
         projects = [p.strip() for p in project_ids.split(",") if p.strip()]
-        df = fetch_issues(projects, token)
+        df = get_issues(projects, token, ssl_verify=False)
 
-    if df.empty:
+    if not isinstance(df, pd.DataFrame) or df.empty:
         st.warning("No issues found.")
         return
 
+    # Dynamic summary cards
     render_dynamic_summary_cards(df)
 
+    # Grouping option for swimlanes
     grouping_option = st.selectbox("Group swimlanes by:", ["status", "team"])
     swimlanes = sorted(df[grouping_option].fillna("No Value").unique())
 
     selected_issue = st.session_state.get("selected_issue")
 
+    # Layout
     board_col, detail_col = st.columns([4, 1])
     with board_col:
         st.markdown('<div class="kanban-container">', unsafe_allow_html=True)
         for lane in swimlanes:
             st.markdown(f'<div class="kanban-column"><h4>{lane}</h4>', unsafe_allow_html=True)
-            lane_df = df[df[grouping_option] == (lane if lane != "No Value" else None)]
+            lane_df = df[df[grouping_option].fillna("No Value") == lane]
+
             for _, row in lane_df.iterrows():
                 color = STATUS_COLORS.get(str(row.get("status", "")).lower(), "#ddd")
                 issue_key = f"btn_{row['id']}_{grouping_option}_{lane}"
+
                 if st.button(row["title"], key=issue_key):
                     st.session_state["selected_issue"] = row.to_dict()
                     selected_issue = row.to_dict()
@@ -54,9 +59,11 @@ def render():
                     """,
                     unsafe_allow_html=True
                 )
+
             st.markdown("</div>", unsafe_allow_html=True)
         st.markdown('</div>', unsafe_allow_html=True)
 
+    # Right-hand detail panel
     with detail_col:
         st.markdown('<div class="sticky-panel">', unsafe_allow_html=True)
         if selected_issue:
