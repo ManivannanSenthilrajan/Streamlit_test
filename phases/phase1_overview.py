@@ -1,7 +1,7 @@
 import streamlit as st
-import pandas as pd
-from utils.gitlab_api import fetch_issues
+from utils.gitlab_api import get_issues
 from utils.ui_components import render_dynamic_summary_cards
+import pandas as pd
 
 def render():
     st.title("📊 Overview")
@@ -14,23 +14,26 @@ def render():
         st.info("Enter token + project IDs and click Fetch Issues.")
         return
 
-    with st.spinner("Fetching issues from GitLab..."):
+    with st.spinner("Fetching issues..."):
         projects = [p.strip() for p in project_ids.split(",") if p.strip()]
-        df = fetch_issues(projects, token)
+        df = get_issues(projects, token, ssl_verify=False)
 
-    if df.empty:
+    if not isinstance(df, pd.DataFrame) or df.empty:
         st.warning("No issues found.")
         return
 
-    st.subheader("Summary")
+    # Flatten any list columns to strings to prevent unhashable errors
+    for col in df.columns:
+        if df[col].dtype == 'object':
+            df[col] = df[col].apply(lambda x: ", ".join(x) if isinstance(x, list) else str(x))
+
     render_dynamic_summary_cards(df)
 
     st.subheader("All Issues")
-    st.dataframe(df, use_container_width=True)
+    st.dataframe(df)
 
     st.download_button(
-        "Download Filtered Issues as Excel",
-        data=df.to_excel(index=False),
-        file_name="gitlab_issues.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        "Download Issues as Excel",
+        df.to_excel(index=False),
+        file_name="issues.xlsx"
     )
