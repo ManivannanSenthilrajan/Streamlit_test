@@ -2,6 +2,7 @@ import streamlit as st
 from utils.gitlab_api import get_issues, safe_join
 from utils.ui_components import render_dynamic_summary_cards
 import pandas as pd
+import io
 
 def render():
     st.title("📊 Overview")
@@ -22,6 +23,11 @@ def render():
         st.warning("No issues found.")
         return
 
+    # Ensure all expected label columns exist
+    for col in ["status", "team", "milestone", "sprint", "project", "workstream"]:
+        if col not in df.columns:
+            df[col] = ""
+
     # Flatten any complex objects into strings
     for col in df.columns:
         if df[col].dtype == 'object':
@@ -32,8 +38,14 @@ def render():
     st.subheader("All Issues")
     st.dataframe(df)
 
+    # Excel download using BytesIO + openpyxl
+    excel_buffer = io.BytesIO()
+    df.to_excel(excel_buffer, index=False, engine='openpyxl')
+    excel_buffer.seek(0)
+
     st.download_button(
         "Download Issues as Excel",
-        df.to_excel(index=False),
-        file_name="issues.xlsx"
+        data=excel_buffer,
+        file_name="issues.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
