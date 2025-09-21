@@ -3,11 +3,11 @@ import pandas as pd
 
 # Define color mapping for statuses
 STATUS_COLORS = {
-    "done": "#d4edda",
-    "closed": "#d4edda",
-    "in progress": "#cce5ff",
-    "todo": "#fff3cd",
-    "blocked": "#f8d7da"
+    "done": "#d4edda",       # light green
+    "closed": "#d4edda",     # treat as done
+    "in progress": "#cce5ff",# light blue
+    "todo": "#fff3cd",       # yellow
+    "blocked": "#f8d7da"     # light red
 }
 
 def render():
@@ -34,6 +34,7 @@ def render():
         st.warning(f"'{group_field}' column not found in data.")
         return
 
+    # Sidebar filters
     with st.sidebar:
         st.markdown("### 🔍 Filters")
         filters = {}
@@ -51,11 +52,36 @@ def render():
         st.warning("No issues match the selected filters.")
         return
 
-    # Maintain selection state for right-side detail view
     selected_issue = st.session_state.get("selected_issue")
 
-    # Layout: left Kanban board + right detail panel
+    # CSS for sticky panel
+    st.markdown("""
+        <style>
+        .sticky-panel {
+            position: sticky;
+            top: 0;
+            background-color: #f8f9fa;
+            border-left: 2px solid #ddd;
+            padding: 1rem;
+            height: 90vh;
+            overflow-y: auto;
+        }
+        .issue-card {
+            border-radius: 10px;
+            padding: 8px;
+            margin-bottom: 8px;
+            cursor: pointer;
+            transition: transform 0.1s ease-in-out;
+        }
+        .issue-card:hover {
+            transform: scale(1.02);
+        }
+        </style>
+    """, unsafe_allow_html=True)
+
+    # Layout: left board + right sticky detail panel
     board_col, detail_col = st.columns([3, 1])
+
     with board_col:
         cols = st.columns(len(swimlanes))
         for i, swimlane in enumerate(swimlanes):
@@ -63,13 +89,15 @@ def render():
                 st.markdown(f"### {swimlane or 'No Value'}")
                 for _, row in filtered[filtered[group_field] == swimlane].iterrows():
                     bg = STATUS_COLORS.get(str(row.get("status", "")).lower(), "#ffffff")
-                    if st.button(row['title'], key=f"btn_{row['id']}", help="Click to view details"):
+                    unique_key = f"btn_{row['id']}_{swimlane}_{row.get('project','')}"
+
+                    if st.button(row['title'], key=unique_key, help="Click to view details"):
                         st.session_state["selected_issue"] = row.to_dict()
                         selected_issue = st.session_state["selected_issue"]
 
                     st.markdown(
                         f"""
-                        <div style="background-color: {bg}; padding: 8px; border-radius: 10px; margin-bottom: 5px;">
+                        <div class="issue-card" style="background-color: {bg};">
                             <strong>{row['title']}</strong><br>
                             <small>{", ".join(f"{c}: {row[c]}" for c in label_columns if row[c])}</small>
                         </div>
@@ -78,6 +106,7 @@ def render():
                     )
 
     with detail_col:
+        st.markdown('<div class="sticky-panel">', unsafe_allow_html=True)
         if selected_issue:
             st.markdown("### 📝 Issue Details")
             st.markdown(f"**Title:** {selected_issue['title']}")
@@ -85,3 +114,10 @@ def render():
             for col in label_columns:
                 st.markdown(f"**{col.capitalize()}:** {selected_issue.get(col, '—')}")
             st.link_button("🔗 Open in GitLab", selected_issue['web_url'])
+            if st.button("❌ Close Panel"):
+                st.session_state["selected_issue"] = None
+                selected_issue = None
+                st.experimental_rerun()
+        else:
+            st.markdown("_Select an issue from the board to see details here._")
+        st.markdown('</div>', unsafe_allow_html=True)
