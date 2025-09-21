@@ -1,44 +1,36 @@
 import streamlit as st
-from utils.gitlab_api import download_excel
+import pandas as pd
+from utils.gitlab_api import fetch_issues
+from utils.ui_components import render_dynamic_summary_cards
 
 def render():
-    if "issues_df" not in st.session_state:
-        st.info("Enter token and project IDs, then click **Refresh Issues** to load data.")
+    st.title("📊 Overview")
+
+    token = st.text_input("GitLab Personal Access Token", type="password")
+    project_ids = st.text_input("Project IDs (comma-separated)", "")
+    refresh = st.button("Fetch Issues")
+
+    if not refresh or not token or not project_ids:
+        st.info("Enter token + project IDs and click Fetch Issues.")
         return
 
-    df = st.session_state["issues_df"]
+    with st.spinner("Fetching issues from GitLab..."):
+        projects = [p.strip() for p in project_ids.split(",") if p.strip()]
+        df = fetch_issues(projects, token)
 
-    st.subheader("📌 Overview")
+    if df.empty:
+        st.warning("No issues found.")
+        return
 
-    # Dynamically detect all label-based columns (besides id, title, description, web_url)
-    label_columns = [col for col in df.columns if col not in ["id", "title", "description", "web_url"]]
+    st.subheader("Summary")
+    render_dynamic_summary_cards(df)
 
-    # Sidebar Filters (dynamically created)
-    with st.sidebar:
-        st.markdown("### 🔍 Filters")
-        filters = {}
-        for col in label_columns:
-            unique_values = sorted(df[col].dropna().unique())
-            filters[col] = st.multiselect(col.capitalize(), unique_values)
+    st.subheader("All Issues")
+    st.dataframe(df, use_container_width=True)
 
-    # Apply filters dynamically
-    filtered_df = df.copy()
-    for col, selected_values in filters.items():
-        if selected_values:
-            filtered_df = filtered_df[filtered_df[col].isin(selected_values)]
-
-    # Dynamic summary cards (1 row with up to 4 cards per row)
-    cols = st.columns(min(len(label_columns), 4))
-    for i, col in enumerate(label_columns):
-        with cols[i % 4]:
-            st.metric(col.capitalize(), filtered_df[col].nunique())
-
-    st.dataframe(filtered_df, use_container_width=True)
-
-    excel_data = download_excel(filtered_df)
     st.download_button(
-        "📥 Download Filtered Issues (Excel)",
-        data=excel_data,
-        file_name="issues.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "Download Filtered Issues as Excel",
+        data=df.to_excel(index=False),
+        file_name="gitlab_issues.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
