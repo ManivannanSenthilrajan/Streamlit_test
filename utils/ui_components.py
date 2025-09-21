@@ -10,8 +10,8 @@ STATUS_COLORS = {
 }
 
 def load_css():
-    """Load global CSS for the app."""
-    with open("utils/global.css") as f:
+    """Load global CSS from styles folder."""
+    with open("styles/global.css") as f:
         st.markdown(f"<style>{f.read()}</style>", unsafe_allow_html=True)
 
 def safe_join(val):
