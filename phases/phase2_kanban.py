@@ -27,11 +27,16 @@ def render():
 
     # Grouping option for swimlanes
     grouping_option = st.selectbox("Group swimlanes by:", ["status", "team"])
+
+    # Ensure grouping column is string (flatten list if needed)
+    df[grouping_option] = df[grouping_option].apply(lambda x: ", ".join(x) if isinstance(x, list) else str(x))
+
+    # Unique swimlanes
     swimlanes = sorted(df[grouping_option].fillna("No Value").unique())
 
     selected_issue = st.session_state.get("selected_issue")
 
-    # Layout
+    # Layout: Kanban + Detail Panel
     board_col, detail_col = st.columns([4, 1])
     with board_col:
         st.markdown('<div class="kanban-container">', unsafe_allow_html=True)
