@@ -1,17 +1,16 @@
 import streamlit as st
-from utils.ui_components import load_css
 from phases import phase1_overview, phase2_kanban
+from utils.ui_components import load_css
 
-st.set_page_config(page_title="GitLab Project Dashboard", layout="wide")
+# Page config
+st.set_page_config(page_title="GitLab Issue Manager", layout="wide")
 
-# Load global CSS once
-load_css("styles/global.css")
+# Load CSS
+load_css()
 
-st.sidebar.title("Navigation")
-tabs = ["Overview", "Kanban Board"]
-selected_tab = st.sidebar.radio("Select Tab", tabs)
-
-if selected_tab == "Overview":
+# Tabs
+tabs = st.tabs(["Overview", "Kanban"])  # add more tabs as needed
+with tabs[0]:
     phase1_overview.render()
-elif selected_tab == "Kanban Board":
+with tabs[1]:
     phase2_kanban.render()
