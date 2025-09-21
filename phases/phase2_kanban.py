@@ -1,5 +1,5 @@
 import streamlit as st
-from utils.gitlab_api import get_issues
+from utils.gitlab_api import get_issues, safe_join
 from utils.ui_components import STATUS_COLORS, render_dynamic_summary_cards
 import pandas as pd
 
@@ -25,7 +25,7 @@ def render():
     render_dynamic_summary_cards(df)
 
     grouping_option = st.selectbox("Group swimlanes by:", ["status", "team"])
-    df[grouping_option] = df[grouping_option].apply(lambda x: ", ".join(x) if isinstance(x, list) else str(x))
+    df[grouping_option] = df[grouping_option].apply(safe_join)
     swimlanes = sorted(df[grouping_option].fillna("No Value").unique())
 
     selected_issue = st.session_state.get("selected_issue")
