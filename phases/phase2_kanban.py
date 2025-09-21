@@ -18,7 +18,6 @@ def render():
     if selected_status:
         filtered = filtered[filtered["status"].isin(selected_status)]
 
-    # Build simple kanban columns
     statuses = sorted(filtered["status"].unique())
     cols = st.columns(len(statuses))
 
@@ -26,12 +25,12 @@ def render():
         with cols[i]:
             st.markdown(f"### {status}")
             for _, row in filtered[filtered["status"] == status].iterrows():
-                if st.button(f"📝 {row['title']}", key=f"issue_{row['id']}"):
-                    st.session_state["selected_issue"] = row.to_dict()
-
-    if "selected_issue" in st.session_state:
-        issue = st.session_state["selected_issue"]
-        st.markdown("---")
-        st.subheader(f"📄 Details for: {issue['title']}")
-        st.markdown(f"**Description:** {issue['description']}")
-        st.markdown(f"[View on GitLab]({issue['web_url']})")
+                st.markdown(
+                    f"""
+                    <div class="kanban-card" onclick="window.open('{row['web_url']}', '_blank')">
+                        <strong>{row['title']}</strong><br>
+                        <small>Team: {row['team'] or "—"} | Sprint: {row['sprint'] or "—"}</small>
+                    </div>
+                    """,
+                    unsafe_allow_html=True
+                )
