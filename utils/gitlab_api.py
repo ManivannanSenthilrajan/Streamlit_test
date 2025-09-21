@@ -57,10 +57,7 @@ def parse_labels(df):
     """
     Parse GitLab issue labels into separate columns.
     Handles key::value pattern, multiple values per key, case-insensitive.
-    Fills missing values with None.
-
-    Returns:
-        pd.DataFrame: DataFrame with dynamic label columns
+    Fills missing values with empty string.
     """
     if "labels" not in df.columns:
         return df
@@ -77,23 +74,31 @@ def parse_labels(df):
 
     # Initialize empty columns
     for key in all_keys:
-        df[key] = None
+        df[key] = ""
 
-    # Fill values
+    # Fill values row by row
     for idx, label_list in enumerate(df["labels"]):
         if not label_list:
             continue
+        label_dict = {}
         for label in label_list:
             if "::" in label:
                 parts = label.split("::")
                 key = parts[0].strip().lower()
-                value = parts[1].strip() if len(parts) > 1 else None
-                # If multiple values for same key, join with comma
-                if df.at[idx, key]:
-                    df.at[idx, key] += f", {value}"
+                value = parts[1].strip() if len(parts) > 1 else ""
+                if key in label_dict:
+                    label_dict[key] += f", {value}"
                 else:
-                    df.at[idx, key] = value
+                    label_dict[key] = value
+        # Assign all keys as strings
+        for key in all_keys:
+            df.at[idx, key] = label_dict.get(key, "")
 
-    # Optional: clean column names (replace spaces with underscores)
+    # Ensure all columns are strings
+    for col in all_keys:
+        df[col] = df[col].astype(str)
+
+    # Optional: clean column names
     df.rename(columns=lambda x: x.replace(" ", "_").lower(), inplace=True)
+
     return df
