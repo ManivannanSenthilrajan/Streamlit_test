@@ -7,20 +7,23 @@ import io
 def render():
     st.title("📊 Overview")
 
-    token = st.text_input("GitLab Personal Access Token", type="password")
-    project_ids = st.text_input("Project IDs (comma-separated)", "")
-    refresh = st.button("Fetch Issues")
+    token = st.text_input("GitLab Personal Access Token", type="password", key="overview_token")
+    project_ids = st.text_input("Project IDs (comma-separated)", "", key="overview_projects")
+    refresh = st.button("Fetch Issues", key="overview_fetch")
 
-    if not refresh or not token or not project_ids:
-        st.info("Enter token + project IDs and click Fetch Issues.")
-        return
+    # Initialize session_state for caching
+    if "issues_df" not in st.session_state:
+        st.session_state["issues_df"] = pd.DataFrame()
 
-    with st.spinner("Fetching issues..."):
+    if refresh:
         projects = [p.strip() for p in project_ids.split(",") if p.strip()]
-        df = get_issues(projects, token, ssl_verify=False)
+        with st.spinner("Fetching issues..."):
+            st.session_state["issues_df"] = get_issues(projects, token, ssl_verify=False)
 
-    if not isinstance(df, pd.DataFrame) or df.empty:
-        st.warning("No issues found.")
+    df = st.session_state["issues_df"]
+
+    if df.empty:
+        st.info("Enter token + project IDs and click Fetch Issues.")
         return
 
     # Ensure all expected label columns exist
@@ -33,6 +36,7 @@ def render():
         if df[col].dtype == 'object':
             df[col] = df[col].apply(safe_join)
 
+    st.subheader("Quick Summary")
     render_dynamic_summary_cards(df)
 
     st.subheader("All Issues")
@@ -42,7 +46,6 @@ def render():
     excel_buffer = io.BytesIO()
     df.to_excel(excel_buffer, index=False, engine='openpyxl')
     excel_buffer.seek(0)
-
     st.download_button(
         "Download Issues as Excel",
         data=excel_buffer,
