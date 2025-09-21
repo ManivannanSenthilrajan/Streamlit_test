@@ -5,13 +5,12 @@ import pandas as pd
 import io
 
 def render():
-    st.title("📊 Overview")
+    st.header("📊 Overview")
 
     token = st.text_input("GitLab Personal Access Token", type="password", key="overview_token")
     project_ids = st.text_input("Project IDs (comma-separated)", "", key="overview_projects")
     refresh = st.button("Fetch Issues", key="overview_fetch")
 
-    # Initialize session_state for caching
     if "issues_df" not in st.session_state:
         st.session_state["issues_df"] = pd.DataFrame()
 
@@ -26,25 +25,31 @@ def render():
         st.info("Enter token + project IDs and click Fetch Issues.")
         return
 
-    # Ensure all expected label columns exist
-    for col in ["status", "team", "milestone", "sprint", "project", "workstream"]:
+    # Ensure all label columns exist
+    for col in ["team", "status", "milestone", "sprint", "project", "workstream"]:
         if col not in df.columns:
             df[col] = ""
 
-    # Flatten any complex objects into strings
+    # Flatten complex objects
     for col in df.columns:
-        if df[col].dtype == 'object':
-            df[col] = df[col].apply(safe_join)
+        df[col] = df[col].apply(safe_join)
 
+    # Quick summary cards with counts
     st.subheader("Quick Summary")
     render_dynamic_summary_cards(df)
 
+    # Show filtered dataframe
     st.subheader("All Issues")
-    st.dataframe(df)
+    filtered_df = df.copy()
+    for label in ["team", "status", "milestone", "sprint", "project", "workstream"]:
+        filter_val = st.session_state.get(f"filter_{label}")
+        if filter_val:
+            filtered_df = filtered_df[filtered_df[label] == filter_val]
+    st.dataframe(filtered_df)
 
-    # Excel download using BytesIO + openpyxl
+    # Excel download
     excel_buffer = io.BytesIO()
-    df.to_excel(excel_buffer, index=False, engine='openpyxl')
+    filtered_df.to_excel(excel_buffer, index=False, engine="openpyxl")
     excel_buffer.seek(0)
     st.download_button(
         "Download Issues as Excel",
