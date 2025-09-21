@@ -1,25 +1,28 @@
 import streamlit as st
 from utils.gitlab_api import get_issues, safe_join
-from utils.ui_components import STATUS_COLORS, render_dynamic_summary_cards
+from utils.ui_components import STATUS_COLORS
 import pandas as pd
 
 def render():
     st.title("🗂 Kanban Board")
 
-    token = st.text_input("GitLab Personal Access Token", type="password")
-    project_ids = st.text_input("Project IDs (comma-separated)", "")
-    refresh = st.button("Fetch Issues")
+    token = st.text_input("GitLab Personal Access Token", type="password", key="kanban_token")
+    project_ids = st.text_input("Project IDs (comma-separated)", "", key="kanban_projects")
+    refresh = st.button("Fetch Issues", key="kanban_fetch")
 
-    if not refresh or not token or not project_ids:
-        st.info("Enter token + project IDs and click Fetch Issues.")
-        return
+    # Initialize session_state for caching
+    if "issues_df" not in st.session_state:
+        st.session_state["issues_df"] = pd.DataFrame()
 
-    with st.spinner("Fetching issues..."):
+    if refresh:
         projects = [p.strip() for p in project_ids.split(",") if p.strip()]
-        df = get_issues(projects, token, ssl_verify=False)
+        with st.spinner("Fetching issues..."):
+            st.session_state["issues_df"] = get_issues(projects, token, ssl_verify=False)
 
-    if not isinstance(df, pd.DataFrame) or df.empty:
-        st.warning("No issues found.")
+    df = st.session_state["issues_df"]
+
+    if df.empty:
+        st.info("Enter token + project IDs and click Fetch Issues.")
         return
 
     # Ensure all expected label columns exist
@@ -32,9 +35,7 @@ def render():
         if df[col].dtype == 'object':
             df[col] = df[col].apply(safe_join)
 
-    render_dynamic_summary_cards(df)
-
-    grouping_option = st.selectbox("Group swimlanes by:", ["status", "team"])
+    grouping_option = st.selectbox("Group swimlanes by:", ["status", "team"], key="kanban_group")
     df[grouping_option] = df[grouping_option].apply(safe_join)
     swimlanes = sorted(df[grouping_option].fillna("No Value").unique())
 
